@@ -1,0 +1,20 @@
+{
+    "name": "yangweijie/oha-gui",
+    "type": "project",
+    "require": {
+        "kingbes/libui": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "OhaGui\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "yangweijie",
+            "email": "917647288@qq.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable":true
+}

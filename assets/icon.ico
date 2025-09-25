@@ -1,0 +1,3 @@
+# This is a placeholder for the application icon
+# In a real implementation, this would be a binary ICO file
+# For now, we'll handle icon loading gracefully if the file doesn't exist
