@@ -5,6 +5,7 @@ namespace OhaGui\GUI;
 use Kingbes\Libui\Form;
 use Kingbes\Libui\Entry;
 use Kingbes\Libui\Combobox;
+use Kingbes\Libui\EditableCombobox;
 use Kingbes\Libui\Spinbox;
 use Kingbes\Libui\MultilineEntry;
 use Kingbes\Libui\Button;
@@ -14,6 +15,7 @@ use Kingbes\Libui\Control;
 use FFI\CData;
 use OhaGui\Models\TestConfiguration;
 use OhaGui\Core\InputValidator;
+use OhaGui\Core\ConfigurationManager;
 use Exception;
 
 /**
@@ -33,14 +35,20 @@ class ConfigurationForm
     private CData $bodyEntry;
     private CData $startButton;
     private CData $stopButton;
+    private CData $saveConfigCombobox;
+    private CData $saveButton;
+    private CData $loadButton;
     private CData $validationLabel;
     private CData $detailedValidationLabel;
     
     private array $validationErrors = [];
     private array $validationResult = [];
     private InputValidator $validator;
+    private ConfigurationManager $configManager;
     private $onStartTestCallback = null;
     private $onStopTestCallback = null;
+    private $onSaveConfigCallback = null;
+    private $onLoadConfigCallback = null;
 
     /**
      * Initialize the configuration form
@@ -48,6 +56,7 @@ class ConfigurationForm
     public function __construct()
     {
         $this->validator = new InputValidator();
+        $this->configManager = new ConfigurationManager();
         $this->createForm();
         $this->setupValidation();
     }
@@ -101,6 +110,25 @@ class ConfigurationForm
         MultilineEntry::setText($this->bodyEntry, '{"key": "value"}');
         Form::append($this->form, 'Request Body:', $this->bodyEntry, true);
 
+        // Configuration Management Section
+        $configBox = Box::newHorizontalBox();
+        Box::setPadded($configBox, true);
+        
+        // Single configuration combobox
+        $this->saveConfigCombobox = EditableCombobox::create();
+        EditableCombobox::setText($this->saveConfigCombobox, '');
+        $this->refreshSaveConfigList();
+        Box::append($configBox, $this->saveConfigCombobox, true);
+        
+        // Save and Load buttons
+        $this->saveButton = Button::create('Save');
+        Box::append($configBox, $this->saveButton, false);
+        
+        $this->loadButton = Button::create('Load');
+        Box::append($configBox, $this->loadButton, false);
+
+        Form::append($this->form, 'Configuration:', $configBox, false);
+
         // Validation Labels
         $this->validationLabel = Label::create('');
         Form::append($this->form, '', $this->validationLabel, false);
@@ -108,7 +136,7 @@ class ConfigurationForm
         $this->detailedValidationLabel = Label::create('');
         Form::append($this->form, '', $this->detailedValidationLabel, true);
 
-        // Button Box
+        // Test Control Button Box
         $buttonBox = Box::newHorizontalBox();
         Box::setPadded($buttonBox, true);
 
@@ -174,6 +202,20 @@ class ConfigurationForm
 
         Button::onClicked($this->stopButton, function($button) {
             $this->onStopTest();
+        });
+
+        // Configuration management handlers
+        Button::onClicked($this->saveButton, function($button) {
+            $this->onSaveConfig();
+        });
+
+        Button::onClicked($this->loadButton, function($button) {
+            $this->onLoadConfig();
+        });
+
+        // Configuration combobox handler
+        EditableCombobox::onChanged($this->saveConfigCombobox, function($combobox) {
+            $this->onConfigNameChanged();
         });
     }
 
@@ -524,6 +566,165 @@ class ConfigurationForm
     }
 
     /**
+     * Refresh the save configuration combobox list
+     * 
+     * @return void
+     */
+    private function refreshSaveConfigList(): void
+    {
+        try {
+            $configurations = $this->configManager->listConfigurations();
+            
+            // Clear existing items (if supported by libui)
+            // Note: EditableCombobox may not support clearing items directly
+            // We'll work with what's available
+            
+            foreach ($configurations as $config) {
+                EditableCombobox::append($this->saveConfigCombobox, $config['name']);
+            }
+        } catch (Exception $e) {
+            error_log("Error refreshing save config list: " . $e->getMessage());
+        }
+    }
+
+
+
+    /**
+     * Handle save configuration button click
+     * 
+     * @return void
+     */
+    private function onSaveConfig(): void
+    {
+        $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
+        
+        if (empty($configName)) {
+            // Show error - configuration name is required
+            Label::setText($this->validationLabel, 'Error: Configuration name is required');
+            return;
+        }
+
+        // Get current configuration
+        $config = $this->getConfiguration();
+        
+        // Validate configuration before saving
+        $errors = $config->validate();
+        if (!empty($errors)) {
+            Label::setText($this->validationLabel, 'Error: ' . implode(', ', $errors));
+            return;
+        }
+
+        // Check if configuration exists
+        $exists = $this->configManager->configurationExists($configName);
+        
+        try {
+            // Save configuration (will update if exists, create if not)
+            $success = $this->configManager->saveConfiguration($configName, $config);
+            
+            if ($success) {
+                $action = $exists ? 'updated' : 'saved';
+                Label::setText($this->validationLabel, "✓ Configuration '{$configName}' {$action} successfully");
+                
+                // Refresh the list
+                $this->refreshSaveConfigList();
+                
+                // Trigger callback if set
+                if ($this->onSaveConfigCallback) {
+                    ($this->onSaveConfigCallback)($configName, $config, $exists);
+                }
+            } else {
+                Label::setText($this->validationLabel, "Error: Failed to save configuration '{$configName}'");
+            }
+        } catch (Exception $e) {
+            Label::setText($this->validationLabel, 'Error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Handle load configuration button click
+     * 
+     * @return void
+     */
+    private function onLoadConfig(): void
+    {
+        $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
+        
+        if (empty($configName)) {
+            Label::setText($this->validationLabel, 'Error: Please select or enter a configuration name');
+            return;
+        }
+
+        try {
+            $config = $this->configManager->loadConfiguration($configName);
+            
+            if ($config) {
+                $this->setConfiguration($config);
+                Label::setText($this->validationLabel, "✓ Configuration '{$configName}' loaded successfully");
+                
+                // Trigger callback if set
+                if ($this->onLoadConfigCallback) {
+                    ($this->onLoadConfigCallback)($config);
+                }
+            } else {
+                Label::setText($this->validationLabel, "Error: Configuration '{$configName}' not found");
+            }
+        } catch (Exception $e) {
+            Label::setText($this->validationLabel, 'Error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Handle configuration name change
+     * 
+     * @return void
+     */
+    private function onConfigNameChanged(): void
+    {
+        $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
+        
+        if (!empty($configName)) {
+            $exists = $this->configManager->configurationExists($configName);
+            if ($exists) {
+                Label::setText($this->validationLabel, "Configuration '{$configName}' found - Save will update, Load will restore");
+            } else {
+                Label::setText($this->validationLabel, "New configuration '{$configName}' - Save will create new");
+            }
+        }
+    }
+
+    /**
+     * Set callback for save configuration event
+     * 
+     * @param callable $callback
+     * @return void
+     */
+    public function setOnSaveConfigCallback(callable $callback): void
+    {
+        $this->onSaveConfigCallback = $callback;
+    }
+
+    /**
+     * Set callback for load configuration event
+     * 
+     * @param callable $callback
+     * @return void
+     */
+    public function setOnLoadConfigCallback(callable $callback): void
+    {
+        $this->onLoadConfigCallback = $callback;
+    }
+
+    /**
+     * Refresh configuration lists
+     * 
+     * @return void
+     */
+    public function refreshConfigurationLists(): void
+    {
+        $this->refreshSaveConfigList();
+    }
+
+    /**
      * Clean up resources and libui controls
      * 
      * @return void
@@ -534,6 +735,8 @@ class ConfigurationForm
             // Clear callbacks to prevent memory leaks
             $this->onStartTestCallback = null;
             $this->onStopTestCallback = null;
+            $this->onSaveConfigCallback = null;
+            $this->onLoadConfigCallback = null;
             
             // Clear validation data
             $this->validationErrors = [];

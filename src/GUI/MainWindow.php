@@ -24,18 +24,18 @@ class MainWindow
     private CData $window;
     private CData $mainBox;
     private ?ConfigurationForm $configForm = null;
-    private ?ConfigurationList $configList = null;
+
     private ?ResultsDisplay $resultsDisplay = null;
     private ?TestExecutor $testExecutor = null;
     private ?OhaCommandBuilder $commandBuilder = null;
     private ?ResultParser $resultParser = null;
     private ?ConfigurationManager $configManager = null;
     private array $keyboardShortcuts = [];
-    private int $minWidth = 600;
-    private int $minHeight = 400;
+    private int $minWidth = 500;
+    private int $minHeight = 350;
     
-    private const WINDOW_WIDTH = 800;
-    private const WINDOW_HEIGHT = 600;
+    private const WINDOW_WIDTH = 650;
+    private const WINDOW_HEIGHT = 550;
     private const WINDOW_TITLE = 'OHA GUI Tool - HTTP Load Testing';
 
     /**
@@ -78,7 +78,7 @@ class MainWindow
         Window::setMargined($this->window, true);
         
         // Set minimum window size to prevent UI from becoming unusable
-        $this->setMinimumSize(600, 400);
+        $this->setMinimumSize(500, 350);
         
         // Center the window on screen (if supported by libui)
         $this->centerWindow();
@@ -95,28 +95,29 @@ class MainWindow
         $this->mainBox = Box::newVerticalBox();
         Box::setPadded($this->mainBox, true);
 
-        // Create horizontal box for main content
+        // Create horizontal box for main content with resizable panels
         $contentBox = Box::newHorizontalBox();
         Box::setPadded($contentBox, true);
 
-        // Create left panel for configuration
-        $leftPanel = Box::newVerticalBox();
-        Box::setPadded($leftPanel, true);
+        // Create left panel container (resizable) - Configuration Form only
+        $leftPanelContainer = Box::newVerticalBox();
+        Box::setPadded($leftPanelContainer, true);
 
         // Create configuration form
         $this->configForm = new ConfigurationForm();
-        Box::append($leftPanel, $this->configForm->getControl(), false);
+        Box::append($leftPanelContainer, $this->configForm->getControl(), true);
 
-        // Create configuration list
-        $this->configList = new ConfigurationList($this->window);
-        Box::append($leftPanel, $this->configList->getControl(), true);
+        // Create right panel container (resizable) - Results Display
+        $rightPanelContainer = Box::newVerticalBox();
+        Box::setPadded($rightPanelContainer, true);
 
-        // Create right panel for results
+        // Create results display
         $this->resultsDisplay = new ResultsDisplay();
+        Box::append($rightPanelContainer, $this->resultsDisplay->getControl(), true);
 
-        // Add panels to content box
-        Box::append($contentBox, $leftPanel, false);
-        Box::append($contentBox, $this->resultsDisplay->getControl(), true);
+        // Add panels to content box with stretching enabled
+        Box::append($contentBox, $leftPanelContainer, true);  // Left panel can stretch
+        Box::append($contentBox, $rightPanelContainer, true); // Right panel can stretch
 
         // Add content box to main box
         Box::append($this->mainBox, $contentBox, true);
@@ -154,18 +155,16 @@ class MainWindow
             $this->stopTest();
         });
 
-        // Connect configuration list to form
-        $this->configList->setOnLoadConfigCallback(function(TestConfiguration $config) {
-            $this->loadConfigurationToForm($config);
+        // Connect form configuration management
+        $this->configForm->setOnSaveConfigCallback(function($name, $config, $wasUpdate) {
+            $this->onConfigurationSaved($name, $config, $wasUpdate);
         });
 
-        $this->configList->setOnSaveConfigCallback(function($name) {
-            $this->saveCurrentConfiguration($name);
+        $this->configForm->setOnLoadConfigCallback(function(TestConfiguration $config) {
+            $this->onConfigurationLoaded($config);
         });
 
-        $this->configList->setOnDeleteConfigCallback(function($configName) {
-            $this->onConfigurationDeleted($configName);
-        });
+
 
         // Connect results display save functionality
         $this->resultsDisplay->setOnSaveResultsCallback(function($result) {
@@ -261,15 +260,7 @@ class MainWindow
         return $this->configForm;
     }
 
-    /**
-     * Get the configuration list
-     * 
-     * @return ConfigurationList|null
-     */
-    public function getConfigurationList(): ?ConfigurationList
-    {
-        return $this->configList;
-    }
+
 
     /**
      * Get the results display
@@ -484,19 +475,18 @@ class MainWindow
     }
 
     /**
-     * Load configuration into form
+     * Handle configuration loaded event
      * 
      * @param TestConfiguration $config
      * @return void
      */
-    private function loadConfigurationToForm(TestConfiguration $config): void
+    private function onConfigurationLoaded(TestConfiguration $config): void
     {
         try {
-            if ($this->configForm === null || $this->resultsDisplay === null) {
+            if ($this->resultsDisplay === null) {
                 return;
             }
             
-            $this->configForm->setConfiguration($config);
             $this->resultsDisplay->appendOutput("✓ Configuration '{$config->name}' loaded successfully\n");
             $this->resultsDisplay->appendOutput("  URL: {$config->url}\n");
             $this->resultsDisplay->appendOutput("  Method: {$config->method}\n");
@@ -516,93 +506,39 @@ class MainWindow
     }
 
     /**
-     * Save current configuration with specified name
+     * Handle configuration saved event
      * 
      * @param string $name Configuration name
+     * @param TestConfiguration $config Configuration object
+     * @param bool $wasUpdate Whether this was an update or new save
      * @return void
      */
-    private function saveCurrentConfiguration(string $name): void
+    private function onConfigurationSaved(string $name, TestConfiguration $config, bool $wasUpdate): void
     {
         try {
-            // Get current configuration from form
-            $config = $this->configForm->getConfiguration();
-            
-            // Validate configuration before saving
-            $errors = $config->validate();
-            if (!empty($errors)) {
-                $guidance = UserGuidance::getErrorGuidance('validation_failed', implode(', ', $errors));
-                $this->showUserFriendlyError($guidance['title'], $guidance['message'], $guidance['suggestions']);
+            if ($this->resultsDisplay === null) {
                 return;
             }
             
-            $success = $this->configList->saveConfiguration($name, $config);
-            if ($success) {
-                $this->resultsDisplay->appendOutput("✓ Configuration saved as '{$name}'\n");
-                $this->resultsDisplay->appendOutput("  URL: {$config->url}\n");
-                $this->resultsDisplay->appendOutput("  Method: {$config->method}\n");
-                $this->resultsDisplay->appendOutput("  Connections: {$config->concurrentConnections}\n");
-                $this->resultsDisplay->appendOutput("  Duration: {$config->duration}s\n\n");
-            } else {
-                $guidance = UserGuidance::getErrorGuidance('config_save_failed', 'Unknown error occurred');
-                $this->showUserFriendlyError($guidance['title'], $guidance['message'], $guidance['suggestions']);
-            }
-        } catch (Exception $e) {
-            $guidance = UserGuidance::getErrorGuidance('config_save_failed', $e->getMessage());
-            $this->showUserFriendlyError($guidance['title'], $guidance['message'], $guidance['suggestions']);
-        }
-    }
-
-    /**
-     * Show save configuration dialog with proper user input
-     * 
-     * @return void
-     */
-    private function showSaveConfigurationDialog(): void
-    {
-        try {
-            // Get current configuration from form
-            $config = $this->configForm->getConfiguration();
+            $action = $wasUpdate ? 'updated' : 'saved';
+            $this->resultsDisplay->appendOutput("✓ Configuration {$action} as '{$name}'\n");
+            $this->resultsDisplay->appendOutput("  URL: {$config->url}\n");
+            $this->resultsDisplay->appendOutput("  Method: {$config->method}\n");
+            $this->resultsDisplay->appendOutput("  Connections: {$config->concurrentConnections}\n");
+            $this->resultsDisplay->appendOutput("  Duration: {$config->duration}s\n\n");
             
-            // Validate configuration before saving
-            $errors = $config->validate();
-            if (!empty($errors)) {
-                $guidance = UserGuidance::getErrorGuidance('validation_failed', implode(', ', $errors));
-                $this->showUserFriendlyError($guidance['title'], $guidance['message'], $guidance['suggestions']);
-                return;
-            }
-
-            // Use the configuration list's save dialog functionality
-            if ($this->configList) {
-                $this->configList->showSaveDialog();
-            } else {
-                // Fallback: generate a descriptive name and save directly
-                $urlParts = parse_url($config->url);
-                $domain = $urlParts['host'] ?? 'unknown';
-                $name = $domain . '_' . $config->method . '_' . date('Y-m-d_H-i-s');
-                
-                // Clean the name for filesystem safety
-                $name = preg_replace('/[^a-zA-Z0-9_-]/', '_', $name);
-                
-                $this->saveCurrentConfiguration($name);
+            // Refresh form configuration lists
+            if ($this->configForm !== null) {
+                $this->configForm->refreshConfigurationLists();
             }
         } catch (Exception $e) {
-            $guidance = UserGuidance::getErrorGuidance('config_save_failed', $e->getMessage());
-            $this->showUserFriendlyError($guidance['title'], $guidance['message'], $guidance['suggestions']);
+            error_log("Error handling configuration saved event: " . $e->getMessage());
         }
     }
 
-    /**
-     * Handle configuration deletion
-     * 
-     * @param string|null $configName
-     * @return void
-     */
-    private function onConfigurationDeleted(?string $configName): void
-    {
-        if ($configName) {
-            $this->resultsDisplay->appendOutput("Configuration '{$configName}' deleted.\n");
-        }
-    }
+
+
+
 
     /**
      * Save test results to file
@@ -917,8 +853,8 @@ class MainWindow
                 // Ctrl+S: Save configuration
                 $this->showSaveConfigurationDialog();
             } elseif ($isCtrl && strtolower($key) === 'o') {
-                // Ctrl+O: Load configuration (focus on configuration list)
-                $this->focusConfigurationList();
+                // Ctrl+O: Load configuration (focus on configuration form)
+                $this->focusConfigurationForm();
             } elseif ($isCtrl && strtolower($key) === 'n') {
                 // Ctrl+N: New configuration (clear form)
                 $this->clearConfigurationForm();
@@ -979,7 +915,7 @@ class MainWindow
                 $this->clearConfigurationForm();
             });
             \Kingbes\Libui\Menu::appendItem($fileMenu, 'Load Configuration...', function() {
-                $this->focusConfigurationList();
+                $this->focusConfigurationForm();
             });
             \Kingbes\Libui\Menu::appendItem($fileMenu, 'Save Configuration...', function() {
                 $this->showSaveConfigurationDialog();
@@ -1053,13 +989,7 @@ class MainWindow
                 }
             }
 
-            if (isset($this->configList)) {
-                try {
-                    $this->configList->cleanup();
-                } catch (Exception $e) {
-                    error_log("Error cleaning up configuration list: " . $e->getMessage());
-                }
-            }
+
 
             if (isset($this->resultsDisplay)) {
                 try {
@@ -1071,7 +1001,6 @@ class MainWindow
 
             // Clear references to prevent memory leaks
             $this->configForm = null;
-            $this->configList = null;
             $this->resultsDisplay = null;
             $this->testExecutor = null;
             $this->commandBuilder = null;
@@ -1260,20 +1189,20 @@ class MainWindow
     }
 
     /**
-     * Focus on configuration list for loading
+     * Focus on configuration form for loading configurations
      * 
      * @return void
      */
-    private function focusConfigurationList(): void
+    private function focusConfigurationForm(): void
     {
         try {
-            // If there are configurations available, this would focus the list
-            // For now, we'll just refresh the list to make it more visible
-            if ($this->configList) {
-                $this->configList->refreshConfigurationList();
+            // Refresh the configuration lists in the form and focus on the configuration combobox
+            if ($this->configForm) {
+                $this->configForm->refreshConfigurationLists();
+                // Note: In a full implementation, we would also set focus to the configuration combobox
             }
         } catch (Exception $e) {
-            error_log("Could not focus configuration list: " . $e->getMessage());
+            error_log("Could not focus configuration form: " . $e->getMessage());
         }
     }
 

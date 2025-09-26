@@ -18,18 +18,14 @@ use Exception;
 /**
  * Configuration List component for managing saved test configurations
  * 
- * Displays list of configurations with load, save, and delete functionality
+ * Simplified display of configurations with basic management functionality
  */
 class ConfigurationList
 {
     private CData $group;
     private CData $listBox;
-    private CData $saveButton;
-    private CData $loadButton;
     private CData $deleteButton;
     private CData $refreshButton;
-    private CData $importButton;
-    private CData $exportButton;
     private CData $duplicateButton;
     
     private ConfigurationManager $configManager;
@@ -37,8 +33,6 @@ class ConfigurationList
     private array $configurations = [];
     private ?string $selectedConfig = null;
     
-    private $onLoadConfigCallback = null;
-    private $onSaveConfigCallback = null;
     private $onDeleteConfigCallback = null;
 
     /**
@@ -60,7 +54,7 @@ class ConfigurationList
     private function createUI(): void
     {
         // Create main group
-        $this->group = Group::create('Saved Configurations');
+        $this->group = Group::create('Configuration List');
         Group::setMargined($this->group, true);
 
         // Create main vertical box
@@ -75,40 +69,19 @@ class ConfigurationList
         $buttonBox = Box::newHorizontalBox();
         Box::setPadded($buttonBox, true);
 
-        // Create buttons
-        $this->saveButton = Button::create('Save Current');
-        $this->loadButton = Button::create('Load Selected');
-        $this->deleteButton = Button::create('Delete Selected');
+        // Create simplified buttons
+        $this->deleteButton = Button::create('Delete');
         $this->duplicateButton = Button::create('Duplicate');
-        $this->importButton = Button::create('Import');
-        $this->exportButton = Button::create('Export');
         $this->refreshButton = Button::create('Refresh');
 
         // Initially disable buttons that require selection
-        Control::disable($this->loadButton);
         Control::disable($this->deleteButton);
         Control::disable($this->duplicateButton);
-        Control::disable($this->exportButton);
 
-        // Create button rows for better layout
-        $buttonRow1 = Box::newHorizontalBox();
-        Box::setPadded($buttonRow1, true);
-        $buttonRow2 = Box::newHorizontalBox();
-        Box::setPadded($buttonRow2, true);
-
-        // Add buttons to rows
-        Box::append($buttonRow1, $this->saveButton, true);
-        Box::append($buttonRow1, $this->loadButton, true);
-        Box::append($buttonRow1, $this->deleteButton, true);
-        Box::append($buttonRow1, $this->duplicateButton, true);
-        
-        Box::append($buttonRow2, $this->importButton, true);
-        Box::append($buttonRow2, $this->exportButton, true);
-        Box::append($buttonRow2, $this->refreshButton, true);
-
-        // Add button rows to main button box
-        Box::append($buttonBox, $buttonRow1, false);
-        Box::append($buttonBox, $buttonRow2, false);
+        // Add buttons to button box
+        Box::append($buttonBox, $this->deleteButton, true);
+        Box::append($buttonBox, $this->duplicateButton, true);
+        Box::append($buttonBox, $this->refreshButton, true);
 
         // Add components to main box
         Box::append($mainBox, $this->listBox, true);
@@ -127,28 +100,12 @@ class ConfigurationList
      */
     private function setupEventHandlers(): void
     {
-        Button::onClicked($this->saveButton, function($button) {
-            $this->showSaveDialog();
-        });
-
-        Button::onClicked($this->loadButton, function($button) {
-            $this->loadSelectedConfiguration();
-        });
-
         Button::onClicked($this->deleteButton, function($button) {
             $this->showDeleteConfirmation();
         });
 
         Button::onClicked($this->duplicateButton, function($button) {
             $this->showDuplicateDialog();
-        });
-
-        Button::onClicked($this->importButton, function($button) {
-            $this->showImportDialog();
-        });
-
-        Button::onClicked($this->exportButton, function($button) {
-            $this->showExportDialog();
         });
 
         Button::onClicked($this->refreshButton, function($button) {
@@ -260,52 +217,14 @@ class ConfigurationList
         $this->selectedConfig = $configName;
         
         // Enable buttons that require selection
-        Control::enable($this->loadButton);
         Control::enable($this->deleteButton);
         Control::enable($this->duplicateButton);
-        Control::enable($this->exportButton);
         
         // Refresh the list to update button text
         $this->refreshConfigurationList();
     }
 
-    /**
-     * Show save configuration dialog with enhanced validation
-     * 
-     * @return void
-     */
-    public function showSaveDialog(): void
-    {
-        // Get existing configuration names for validation
-        $existingNames = array_column($this->configurations, 'name');
-        
-        $this->dialogManager->showSaveConfigurationDialog(
-            function($name) {
-                if ($this->onSaveConfigCallback) {
-                    ($this->onSaveConfigCallback)($name);
-                }
-            },
-            null, // onCancel
-            $existingNames
-        );
-    }
 
-    /**
-     * Load the selected configuration
-     * 
-     * @return void
-     */
-    private function loadSelectedConfiguration(): void
-    {
-        if ($this->selectedConfig === null) {
-            return;
-        }
-
-        $config = $this->configManager->loadConfiguration($this->selectedConfig);
-        if ($config && $this->onLoadConfigCallback) {
-            ($this->onLoadConfigCallback)($config);
-        }
-    }
 
     /**
      * Show delete confirmation dialog with enhanced messaging
@@ -342,54 +261,19 @@ class ConfigurationList
 
         $success = $this->configManager->deleteConfiguration($this->selectedConfig);
         if ($success) {
+            $deletedConfigName = $this->selectedConfig;
             $this->selectedConfig = null;
-            Control::disable($this->loadButton);
             Control::disable($this->deleteButton);
+            Control::disable($this->duplicateButton);
             $this->refreshConfigurationList();
             
             if ($this->onDeleteConfigCallback) {
-                ($this->onDeleteConfigCallback)($this->selectedConfig);
+                ($this->onDeleteConfigCallback)($deletedConfigName);
             }
         }
     }
 
-    /**
-     * Save a new configuration
-     * 
-     * @param string $name
-     * @param TestConfiguration $config
-     * @return bool
-     */
-    public function saveConfiguration(string $name, TestConfiguration $config): bool
-    {
-        $success = $this->configManager->saveConfiguration($name, $config);
-        if ($success) {
-            $this->refreshConfigurationList();
-        }
-        return $success;
-    }
 
-    /**
-     * Set callback for load configuration event
-     * 
-     * @param callable $callback
-     * @return void
-     */
-    public function setOnLoadConfigCallback(callable $callback): void
-    {
-        $this->onLoadConfigCallback = $callback;
-    }
-
-    /**
-     * Set callback for save configuration event
-     * 
-     * @param callable $callback
-     * @return void
-     */
-    public function setOnSaveConfigCallback(callable $callback): void
-    {
-        $this->onSaveConfigCallback = $callback;
-    }
 
     /**
      * Set callback for delete configuration event
@@ -464,128 +348,7 @@ class ConfigurationList
         );
     }
 
-    /**
-     * Show import configuration dialog
-     * 
-     * @return void
-     */
-    private function showImportDialog(): void
-    {
-        try {
-            $filePath = $this->dialogManager->showOpenFileDialog();
-            if ($filePath === null) {
-                // User cancelled or dialog failed
-                return;
-            }
-        } catch (Exception $e) {
-            $this->dialogManager->showErrorDialog('Error', 'Failed to open file dialog: ' . $e->getMessage());
-            return;
-        }
 
-        try {
-            $jsonContent = file_get_contents($filePath);
-            if ($jsonContent === false) {
-                $this->dialogManager->showErrorDialog('Error', 'Failed to read the selected file.');
-                return;
-            }
-
-            // Extract filename without extension as default name
-            $defaultName = pathinfo($filePath, PATHINFO_FILENAME);
-            
-            $this->dialogManager->showInputDialog(
-                'Import Configuration',
-                'Enter a name for the imported configuration:',
-                $defaultName,
-                function($name) use ($jsonContent) {
-                    $name = trim($name);
-                    if (empty($name)) {
-                        $this->dialogManager->showErrorDialog('Error', 'Configuration name cannot be empty.');
-                        return;
-                    }
-                    
-                    if ($this->configManager->configurationExists($name)) {
-                        $this->dialogManager->showConfirmationDialog(
-                            'Overwrite Configuration',
-                            "Configuration '{$name}' already exists. Do you want to overwrite it?",
-                            function() use ($name, $jsonContent) {
-                                $this->performImport($name, $jsonContent);
-                            }
-                        );
-                    } else {
-                        $this->performImport($name, $jsonContent);
-                    }
-                }
-            );
-        } catch (Exception $e) {
-            $this->dialogManager->showErrorDialog('Error', 'Failed to import configuration: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Perform the actual import operation
-     * 
-     * @param string $name Configuration name
-     * @param string $jsonContent JSON content to import
-     * @return void
-     */
-    private function performImport(string $name, string $jsonContent): void
-    {
-        $success = $this->configManager->importConfiguration($name, $jsonContent);
-        if ($success) {
-            $this->refreshConfigurationList();
-            $this->dialogManager->showInfoDialog('Success', "Configuration imported as '{$name}'.");
-        } else {
-            $this->dialogManager->showErrorDialog('Error', 'Failed to import configuration. Please check the file format.');
-        }
-    }
-
-    /**
-     * Show export configuration dialog
-     * 
-     * @return void
-     */
-    private function showExportDialog(): void
-    {
-        if ($this->selectedConfig === null) {
-            $this->dialogManager->showErrorDialog('Error', 'No configuration selected.');
-            return;
-        }
-
-        $configName = $this->selectedConfig;
-        
-        try {
-            $filePath = $this->dialogManager->showSaveFileDialog();
-            if ($filePath === null) {
-                // User cancelled or dialog failed
-                return;
-            }
-        } catch (Exception $e) {
-            $this->dialogManager->showErrorDialog('Error', 'Failed to open save dialog: ' . $e->getMessage());
-            return;
-        }
-
-        try {
-            $jsonContent = $this->configManager->exportConfiguration($configName);
-            if ($jsonContent === null) {
-                $this->dialogManager->showErrorDialog('Error', 'Failed to export configuration.');
-                return;
-            }
-
-            // Ensure file has .json extension
-            if (!str_ends_with(strtolower($filePath), '.json')) {
-                $filePath .= '.json';
-            }
-
-            $success = file_put_contents($filePath, $jsonContent);
-            if ($success !== false) {
-                $this->dialogManager->showInfoDialog('Success', "Configuration exported to '{$filePath}'.");
-            } else {
-                $this->dialogManager->showErrorDialog('Error', 'Failed to write export file.');
-            }
-        } catch (Exception $e) {
-            $this->dialogManager->showErrorDialog('Error', 'Failed to export configuration: ' . $e->getMessage());
-        }
-    }
 
     /**
      * Clear the current selection
@@ -595,10 +358,8 @@ class ConfigurationList
     public function clearSelection(): void
     {
         $this->selectedConfig = null;
-        Control::disable($this->loadButton);
         Control::disable($this->deleteButton);
         Control::disable($this->duplicateButton);
-        Control::disable($this->exportButton);
     }
 
     /**
@@ -610,8 +371,6 @@ class ConfigurationList
     {
         try {
             // Clear callbacks to prevent memory leaks
-            $this->onLoadConfigCallback = null;
-            $this->onSaveConfigCallback = null;
             $this->onDeleteConfigCallback = null;
             
             // Clear configuration data
