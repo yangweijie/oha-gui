@@ -30,6 +30,7 @@ class MainWindow
     private ?OhaCommandBuilder $commandBuilder = null;
     private ?ResultParser $resultParser = null;
     private ?ConfigurationManager $configManager = null;
+    private ?ConfigurationManagerWindow $configManagerWindow = null;
     private array $keyboardShortcuts = [];
     private int $minWidth = 500;
     private int $minHeight = 350;
@@ -47,13 +48,15 @@ class MainWindow
         $this->commandBuilder = new OhaCommandBuilder();
         $this->resultParser = new ResultParser();
         $this->configManager = new ConfigurationManager();
-        
+
         $this->createWindow();
         $this->createLayout();
         $this->setupEventHandlers();
-        $this->setupKeyboardShortcuts();
         $this->connectComponents();
-        
+
+        // Setup configuration manager (after window is created)
+        $this->setupConfigurationManager();
+
         // Set application icon if available
         $iconPath = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'icon.ico';
         $this->setIcon($iconPath);
@@ -80,8 +83,6 @@ class MainWindow
         // Set minimum window size to prevent UI from becoming unusable
         $this->setMinimumSize(500, 350);
         
-        // Center the window on screen (if supported by libui)
-        $this->centerWindow();
     }
 
     /**
@@ -162,6 +163,11 @@ class MainWindow
 
         $this->configForm->setOnLoadConfigCallback(function(TestConfiguration $config) {
             $this->onConfigurationLoaded($config);
+        });
+
+        // Connect form to configuration manager window
+        $this->configForm->setOnManageConfigCallback(function() {
+            $this->showConfigurationManager();
         });
 
 
@@ -476,7 +482,7 @@ class MainWindow
 
     /**
      * Handle configuration loaded event
-     * 
+     *
      * @param TestConfiguration $config
      * @return void
      */
@@ -486,7 +492,7 @@ class MainWindow
             if ($this->resultsDisplay === null) {
                 return;
             }
-            
+
             $this->resultsDisplay->appendOutput("✓ Configuration '{$config->name}' loaded successfully\n");
             $this->resultsDisplay->appendOutput("  URL: {$config->url}\n");
             $this->resultsDisplay->appendOutput("  Method: {$config->method}\n");
@@ -499,6 +505,11 @@ class MainWindow
                 $this->resultsDisplay->appendOutput("  Body: " . strlen($config->body) . " characters\n");
             }
             $this->resultsDisplay->appendOutput("\n");
+
+            // Enable the start button since we have a valid configuration
+            if ($this->configForm !== null) {
+                $this->configForm->enableTestControls();
+            }
         } catch (Exception $e) {
             $guidance = UserGuidance::getErrorGuidance('config_load_failed', $e->getMessage());
             $this->showUserFriendlyError($guidance['title'], $guidance['message'], $guidance['suggestions']);
@@ -507,7 +518,7 @@ class MainWindow
 
     /**
      * Handle configuration saved event
-     * 
+     *
      * @param string $name Configuration name
      * @param TestConfiguration $config Configuration object
      * @param bool $wasUpdate Whether this was an update or new save
@@ -519,17 +530,22 @@ class MainWindow
             if ($this->resultsDisplay === null) {
                 return;
             }
-            
+
             $action = $wasUpdate ? 'updated' : 'saved';
             $this->resultsDisplay->appendOutput("✓ Configuration {$action} as '{$name}'\n");
             $this->resultsDisplay->appendOutput("  URL: {$config->url}\n");
             $this->resultsDisplay->appendOutput("  Method: {$config->method}\n");
             $this->resultsDisplay->appendOutput("  Connections: {$config->concurrentConnections}\n");
             $this->resultsDisplay->appendOutput("  Duration: {$config->duration}s\n\n");
-            
+
             // Refresh form configuration lists
             if ($this->configForm !== null) {
                 $this->configForm->refreshConfigurationLists();
+            }
+
+            // Enable the start button since we have a valid configuration
+            if ($this->configForm !== null) {
+                $this->configForm->enableTestControls();
             }
         } catch (Exception $e) {
             error_log("Error handling configuration saved event: " . $e->getMessage());
@@ -781,34 +797,24 @@ class MainWindow
     }
 
     /**
-     * Add keyboard shortcuts and tooltips
-     * 
+     * Setup configuration manager window
+     *
      * @return void
      */
-    private function setupKeyboardShortcuts(): void
+    private function setupConfigurationManager(): void
     {
         try {
-            // Store shortcut mappings for help display and potential implementation
-            $this->keyboardShortcuts = [
-                'Ctrl+N' => 'New configuration',
-                'Ctrl+O' => 'Load configuration', 
-                'Ctrl+S' => 'Save configuration',
-                'F5' => 'Start test',
-                'Esc' => 'Stop test',
-                'Ctrl+Q' => 'Quit application',
-                'F1' => 'Show help',
-                'Ctrl+R' => 'Clear results',
-                'Ctrl+E' => 'Export results'
-            ];
-            
-            // Try to implement keyboard shortcuts if libui supports them
-            $this->implementKeyboardShortcuts();
-            
-            // Create menu system if supported
-            $this->createMenuSystem();
-            
+            // Create configuration manager window
+            $this->configManagerWindow = new ConfigurationManagerWindow();
+            $this->configManagerWindow->setOnCloseCallback(function() {
+                // Refresh the configuration list in the main form when the manager is closed
+                if ($this->configForm) {
+                    $this->configForm->refreshConfigurationLists();
+                }
+            });
+
         } catch (Exception $e) {
-            error_log("Error setting up keyboard shortcuts: " . $e->getMessage());
+            error_log("Error setting up configuration manager: " . $e->getMessage());
         }
     }
 
@@ -1349,7 +1355,7 @@ class MainWindow
 
     /**
      * Show help dialog with keyboard shortcuts and usage tips
-     * 
+     *
      * @return void
      */
     public function showHelpDialog(): void
@@ -1365,6 +1371,18 @@ class MainWindow
             }
         } catch (Exception $e) {
             $this->resultsDisplay->appendOutput($helpText . "\n");
+        }
+    }
+
+    /**
+     * Show the configuration manager window
+     *
+     * @return void
+     */
+    private function showConfigurationManager(): void
+    {
+        if ($this->configManagerWindow) {
+            $this->configManagerWindow->show();
         }
     }
 

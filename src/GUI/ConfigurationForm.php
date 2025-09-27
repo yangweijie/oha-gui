@@ -38,6 +38,7 @@ class ConfigurationForm
     private CData $saveConfigCombobox;
     private CData $saveButton;
     private CData $loadButton;
+    private CData $manageButton;
     private CData $validationLabel;
     private CData $detailedValidationLabel;
     
@@ -49,6 +50,7 @@ class ConfigurationForm
     private $onStopTestCallback = null;
     private $onSaveConfigCallback = null;
     private $onLoadConfigCallback = null;
+    private $onManageConfigCallback = null;
 
     /**
      * Initialize the configuration form
@@ -71,61 +73,25 @@ class ConfigurationForm
         $this->form = Form::create();
         Form::setPadded($this->form, true);
 
-        // URL Entry
-        $this->urlEntry = Entry::create();
-        Entry::setText($this->urlEntry, 'http://localhost:8080');
-        Form::append($this->form, 'URL:', $this->urlEntry, false);
-
-        // HTTP Method Combobox
-        $this->methodCombobox = Combobox::create();
-        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
-        foreach ($methods as $method) {
-            Combobox::append($this->methodCombobox, $method);
-        }
-        Combobox::setSelected($this->methodCombobox, 0); // Default to GET
-        Form::append($this->form, 'HTTP Method:', $this->methodCombobox, false);
-
-        // Concurrent Connections Spinbox
-        $this->connectionsSpinbox = Spinbox::create(1, 1000);
-        Spinbox::setValue($this->connectionsSpinbox, 10);
-        Form::append($this->form, 'Concurrent Connections:', $this->connectionsSpinbox, false);
-
-        // Duration Spinbox
-        $this->durationSpinbox = Spinbox::create(1, 3600);
-        Spinbox::setValue($this->durationSpinbox, 10);
-        Form::append($this->form, 'Duration (seconds):', $this->durationSpinbox, false);
-
-        // Timeout Spinbox
-        $this->timeoutSpinbox = Spinbox::create(1, 300);
-        Spinbox::setValue($this->timeoutSpinbox, 30);
-        Form::append($this->form, 'Timeout (seconds):', $this->timeoutSpinbox, false);
-
-        // Request Headers MultilineEntry
-        $this->headersEntry = MultilineEntry::create();
-        MultilineEntry::setText($this->headersEntry, "Content-Type: application/json\nUser-Agent: OHA-GUI-Tool");
-        Form::append($this->form, 'Request Headers:', $this->headersEntry, true);
-
-        // Request Body MultilineEntry
-        $this->bodyEntry = MultilineEntry::create();
-        MultilineEntry::setText($this->bodyEntry, '{"key": "value"}');
-        Form::append($this->form, 'Request Body:', $this->bodyEntry, true);
-
         // Configuration Management Section
         $configBox = Box::newHorizontalBox();
         Box::setPadded($configBox, true);
-        
+
         // Single configuration combobox
         $this->saveConfigCombobox = EditableCombobox::create();
         EditableCombobox::setText($this->saveConfigCombobox, '');
         $this->refreshSaveConfigList();
         Box::append($configBox, $this->saveConfigCombobox, true);
-        
-        // Save and Load buttons
+
+        // Save, Load and Manage buttons
         $this->saveButton = Button::create('Save');
         Box::append($configBox, $this->saveButton, false);
-        
+
         $this->loadButton = Button::create('Load');
         Box::append($configBox, $this->loadButton, false);
+
+        $this->manageButton = Button::create('Manage');
+        Box::append($configBox, $this->manageButton, false);
 
         Form::append($this->form, 'Configuration:', $configBox, false);
 
@@ -161,40 +127,6 @@ class ConfigurationForm
      */
     private function setupEventHandlers(): void
     {
-        // URL validation on change
-        Entry::onChanged($this->urlEntry, function($entry) {
-            $this->validateUrlField();
-        });
-
-        // Method change handler
-        Combobox::onSelected($this->methodCombobox, function($combobox) {
-            $this->updateBodyFieldVisibility();
-            $this->validateInput(); // Full validation needed due to method change
-        });
-
-        // Numeric field validation
-        Spinbox::onChanged($this->connectionsSpinbox, function($spinbox) {
-            $this->validateInput();
-        });
-
-        Spinbox::onChanged($this->durationSpinbox, function($spinbox) {
-            $this->validateInput();
-        });
-
-        Spinbox::onChanged($this->timeoutSpinbox, function($spinbox) {
-            $this->validateInput();
-        });
-
-        // Headers validation
-        MultilineEntry::onChanged($this->headersEntry, function($entry) {
-            $this->validateHeadersField();
-        });
-
-        // Body validation
-        MultilineEntry::onChanged($this->bodyEntry, function($entry) {
-            $this->validateBodyField();
-        });
-
         // Button click handlers
         Button::onClicked($this->startButton, function($button) {
             $this->onStartTest();
@@ -213,10 +145,22 @@ class ConfigurationForm
             $this->onLoadConfig();
         });
 
-        // Configuration combobox handler
-        EditableCombobox::onChanged($this->saveConfigCombobox, function($combobox) {
-            $this->onConfigNameChanged();
+        Button::onClicked($this->manageButton, function($button) {
+            $this->onManageConfig();
         });
+    }
+
+    /**
+     * Handle manage configuration button click
+     *
+     * @return void
+     */
+    private function onManageConfig(): void
+    {
+        // Trigger callback if set
+        if ($this->onManageConfigCallback) {
+            ($this->onManageConfigCallback)();
+        }
     }
 
     /**
@@ -227,29 +171,6 @@ class ConfigurationForm
     private function setupValidation(): void
     {
         $this->validateInput();
-        $this->updateBodyFieldVisibility();
-    }
-
-    /**
-     * Update body field visibility based on HTTP method
-     * 
-     * @return void
-     */
-    private function updateBodyFieldVisibility(): void
-    {
-        $selectedIndex = Combobox::selected($this->methodCombobox);
-        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
-        $method = $methods[$selectedIndex] ?? 'GET';
-        
-        $methodsWithBody = ['POST', 'PUT', 'PATCH'];
-        $hasBody = in_array($method, $methodsWithBody);
-        
-        if ($hasBody) {
-            Control::enable($this->bodyEntry);
-        } else {
-            Control::disable($this->bodyEntry);
-            MultilineEntry::setText($this->bodyEntry, '');
-        }
     }
 
     /**
@@ -283,69 +204,6 @@ class ConfigurationForm
         }
         
         return $this->validationErrors;
-    }
-
-    /**
-     * Get current configuration from form fields
-     * 
-     * @return TestConfiguration
-     */
-    public function getConfiguration(): TestConfiguration
-    {
-        $url = Entry::text($this->urlEntry);
-        
-        $selectedIndex = Combobox::selected($this->methodCombobox);
-        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
-        $method = $methods[$selectedIndex] ?? 'GET';
-        
-        $connections = Spinbox::value($this->connectionsSpinbox);
-        $duration = Spinbox::value($this->durationSpinbox);
-        $timeout = Spinbox::value($this->timeoutSpinbox);
-        
-        $headersText = MultilineEntry::text($this->headersEntry);
-        $headers = $this->parseHeaders($headersText);
-        
-        $body = MultilineEntry::text($this->bodyEntry);
-        
-        return new TestConfiguration(
-            '', // name will be set when saving
-            $url,
-            $method,
-            $connections,
-            $duration,
-            $timeout,
-            $headers,
-            $body
-        );
-    }
-
-    /**
-     * Set configuration values in form fields
-     * 
-     * @param TestConfiguration $config
-     * @return void
-     */
-    public function setConfiguration(TestConfiguration $config): void
-    {
-        Entry::setText($this->urlEntry, $config->url);
-        
-        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
-        $methodIndex = array_search(strtoupper($config->method), $methods);
-        if ($methodIndex !== false) {
-            Combobox::setSelected($this->methodCombobox, $methodIndex);
-        }
-        
-        Spinbox::setValue($this->connectionsSpinbox, $config->concurrentConnections);
-        Spinbox::setValue($this->durationSpinbox, $config->duration);
-        Spinbox::setValue($this->timeoutSpinbox, $config->timeout);
-        
-        $headersText = $this->formatHeaders($config->headers);
-        MultilineEntry::setText($this->headersEntry, $headersText);
-        
-        MultilineEntry::setText($this->bodyEntry, $config->body);
-        
-        $this->updateBodyFieldVisibility();
-        $this->validateInput();
     }
 
     /**
@@ -448,59 +306,6 @@ class ConfigurationForm
     }
 
     /**
-     * Validate individual URL field
-     * 
-     * @return void
-     */
-    public function validateUrlField(): void
-    {
-        $url = Entry::text($this->urlEntry);
-        $result = $this->validator->validateUrl($url);
-        
-        if (!$result['isValid'] && !empty($result['fieldErrors']['url'])) {
-            // Could show field-specific error tooltip or status
-            // For now, trigger full validation
-            $this->validateInput();
-        }
-    }
-
-    /**
-     * Validate headers field
-     * 
-     * @return void
-     */
-    public function validateHeadersField(): void
-    {
-        $headersText = MultilineEntry::text($this->headersEntry);
-        $result = $this->validator->validateHeaders($headersText);
-        
-        if (!$result['isValid'] && !empty($result['fieldErrors']['headers'])) {
-            // Could show field-specific error feedback
-            $this->validateInput();
-        }
-    }
-
-    /**
-     * Validate request body field
-     * 
-     * @return void
-     */
-    public function validateBodyField(): void
-    {
-        $body = MultilineEntry::text($this->bodyEntry);
-        $selectedIndex = Combobox::selected($this->methodCombobox);
-        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
-        $method = $methods[$selectedIndex] ?? 'GET';
-        
-        $result = $this->validator->validateRequestBody($body, $method);
-        
-        if (!$result['isValid'] && !empty($result['fieldErrors']['body'])) {
-            // Could show field-specific error feedback
-            $this->validateInput();
-        }
-    }
-
-    /**
      * Get current validation result
      * 
      * @return array Current validation result
@@ -587,17 +392,48 @@ class ConfigurationForm
         }
     }
 
+    /**
+     * Get the current configuration from form fields
+     * 
+     * @return array Configuration data
+     */
+    public function getConfiguration(): array
+    {
+        // Collect all form field values
+        $url = Entry::text($this->urlEntry);
+        $method = Combobox::selected($this->methodCombobox);
+        $connections = Spinbox::value($this->connectionsSpinbox);
+        $duration = Spinbox::value($this->durationSpinbox);
+        $timeout = Spinbox::value($this->timeoutSpinbox);
+        $headersText = MultilineEntry::text($this->headersEntry);
+        $body = MultilineEntry::text($this->bodyEntry);
+
+        // Parse headers
+        $headers = $this->parseHeaders($headersText);
+
+        // Return configuration array
+        return [
+            'url' => $url,
+            'method' => $method,
+            'connections' => $connections,
+            'duration' => $duration,
+            'timeout' => $timeout,
+            'headers' => $headers,
+            'body' => $body,
+        ];
+    }
+
 
 
     /**
      * Handle save configuration button click
-     * 
+     *
      * @return void
      */
     private function onSaveConfig(): void
     {
         $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
-        
+
         if (empty($configName)) {
             // Show error - configuration name is required
             Label::setText($this->validationLabel, 'Error: Configuration name is required');
@@ -606,7 +442,7 @@ class ConfigurationForm
 
         // Get current configuration
         $config = $this->getConfiguration();
-        
+
         // Validate configuration before saving
         $errors = $config->validate();
         if (!empty($errors)) {
@@ -616,39 +452,46 @@ class ConfigurationForm
 
         // Check if configuration exists
         $exists = $this->configManager->configurationExists($configName);
-        
+
         try {
             // Save configuration (will update if exists, create if not)
             $success = $this->configManager->saveConfiguration($configName, $config);
-            
+
             if ($success) {
                 $action = $exists ? 'updated' : 'saved';
                 Label::setText($this->validationLabel, "✓ Configuration '{$configName}' {$action} successfully");
-                
+
                 // Refresh the list
                 $this->refreshSaveConfigList();
-                
+
+                // Enable start button
+                Control::enable($this->startButton);
+
                 // Trigger callback if set
                 if ($this->onSaveConfigCallback) {
                     ($this->onSaveConfigCallback)($configName, $config, $exists);
                 }
             } else {
                 Label::setText($this->validationLabel, "Error: Failed to save configuration '{$configName}'");
+                // Disable start button
+                Control::disable($this->startButton);
             }
         } catch (Exception $e) {
             Label::setText($this->validationLabel, 'Error: ' . $e->getMessage());
+            // Disable start button
+            Control::disable($this->startButton);
         }
     }
 
     /**
      * Handle load configuration button click
-     * 
+     *
      * @return void
      */
     private function onLoadConfig(): void
     {
         $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
-        
+
         if (empty($configName)) {
             Label::setText($this->validationLabel, 'Error: Please select or enter a configuration name');
             return;
@@ -656,39 +499,54 @@ class ConfigurationForm
 
         try {
             $config = $this->configManager->loadConfiguration($configName);
-            
+
             if ($config) {
                 $this->setConfiguration($config);
                 Label::setText($this->validationLabel, "✓ Configuration '{$configName}' loaded successfully");
-                
+
+                // Enable start button
+                Control::enable($this->startButton);
+
                 // Trigger callback if set
                 if ($this->onLoadConfigCallback) {
                     ($this->onLoadConfigCallback)($config);
                 }
             } else {
                 Label::setText($this->validationLabel, "Error: Configuration '{$configName}' not found");
+                // Disable start button
+                Control::disable($this->startButton);
             }
         } catch (Exception $e) {
             Label::setText($this->validationLabel, 'Error: ' . $e->getMessage());
+            // Disable start button
+            Control::disable($this->startButton);
         }
     }
 
     /**
      * Handle configuration name change
-     * 
+     *
      * @return void
      */
     private function onConfigNameChanged(): void
     {
         $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
-        
+
         if (!empty($configName)) {
             $exists = $this->configManager->configurationExists($configName);
             if ($exists) {
                 Label::setText($this->validationLabel, "Configuration '{$configName}' found - Save will update, Load will restore");
+                // Enable start button when a valid configuration is selected
+                Control::enable($this->startButton);
             } else {
                 Label::setText($this->validationLabel, "New configuration '{$configName}' - Save will create new");
+                // Disable start button when configuration doesn't exist
+                Control::disable($this->startButton);
             }
+        } else {
+            Label::setText($this->validationLabel, '');
+            // Disable start button when no configuration is selected
+            Control::disable($this->startButton);
         }
     }
 
@@ -705,13 +563,24 @@ class ConfigurationForm
 
     /**
      * Set callback for load configuration event
-     * 
+     *
      * @param callable $callback
      * @return void
      */
     public function setOnLoadConfigCallback(callable $callback): void
     {
         $this->onLoadConfigCallback = $callback;
+    }
+
+    /**
+     * Set callback for manage configuration event
+     *
+     * @param callable $callback
+     * @return void
+     */
+    public function setOnManageConfigCallback(callable $callback): void
+    {
+        $this->onManageConfigCallback = $callback;
     }
 
     /**

@@ -15,6 +15,24 @@
             "email": "917647288@qq.com"
         }
     ],
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
     "minimum-stability": "dev",
-    "prefer-stable":true
+    "prefer-stable": true,
+    "bin": ["main.php"],
+    "scripts": {
+        "post-install-cmd": [
+            "@php scripts/check-libui-dylib.php",
+            "@php scripts/patchBase.php"
+        ],
+        "post-update-cmd": [
+            "@php scripts/check-libui-dylib.php",
+            "@php scripts/patchBase.php"
+        ]
+    }
 }
