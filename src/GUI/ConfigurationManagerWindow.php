@@ -202,13 +202,35 @@ class ConfigurationManagerWindow
                             $bodyLength = strlen($body);
                             return Table::createValueStr($bodyLength > 0 ? "$bodyLength chars" : "Empty");
                         case 8:
-                            return Table::createValueStr('Edit/Delete');
+                            return Table::createValueStr('Select');
                         default:
                             return Table::createValueStr('');
                     }
                 },
                 function ($handler, $row, $column, $v) {
-                    // Editing not directly supported in this implementation
+                    // Handle button click in the last column
+                    if ($column == 8 && $row < count($this->configurations)) {
+                        // Get the configuration name from the table data
+                        $configKeys = array_keys($this->configurations);
+                        if ($row < count($configKeys)) {
+                            $configKey = $configKeys[$row];
+                            $configData = $this->configurations[$configKey];
+                            $name = $configData['name'];
+                            
+                            // Load the configuration
+                            $config = $this->configManager->loadConfiguration($name);
+                            if ($config) {
+                                // Update the main window combobox through callback
+                                if ($this->onCloseCallback) {
+                                    // Pass the selected configuration name to the callback
+                                    ($this->onCloseCallback)($name, $config);
+                                }
+                                
+                                // Hide the configuration window
+                                $this->hide();
+                            }
+                        }
+                    }
                 }
             );
         };
@@ -224,7 +246,7 @@ class ConfigurationManagerWindow
         Table::appendTextColumn($this->table, 'Headers', 6, false);
         Table::appendTextColumn($this->table, 'Body', 7, false);
 
-        Table::appendTextColumn($this->table, 'Actions', 8, false);
+        Table::appendButtonColumn($this->table, 'Action', 8, false);
 
         // Note: Row click handlers are not supported in this version of libui
         // Editing and deletion will be handled through separate buttons
@@ -326,6 +348,7 @@ class ConfigurationManagerWindow
         $this->hide();
 
         if ($this->onCloseCallback) {
+            // Call the callback without parameters when closing the window normally
             ($this->onCloseCallback)();
         }
 

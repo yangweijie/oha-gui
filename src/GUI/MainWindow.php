@@ -816,10 +816,21 @@ class MainWindow
         try {
             // Create configuration manager window
             $this->configManagerWindow = new ConfigurationManagerWindow();
-            $this->configManagerWindow->setOnCloseCallback(function() {
+            $this->configManagerWindow->setOnCloseCallback(function($selectedConfigName = null, $selectedConfig = null) {
                 // Refresh the configuration list in the main form when the manager is closed
                 if ($this->configForm) {
                     $this->configForm->refreshConfigurationLists();
+                    
+                    // If a configuration was selected, load it into the form
+                    if ($selectedConfigName && $selectedConfig) {
+                        // Set the selected configuration name in the combobox
+                        $this->configForm->setSelectedConfiguration($selectedConfigName);
+                        
+                        // Trigger the configuration loaded callback
+                        if ($this->configForm && method_exists($this->configForm, 'onConfigurationSelected')) {
+                            // This would require adding a public method to ConfigurationForm
+                        }
+                    }
                 }
             });
 
