@@ -90,16 +90,23 @@ class ConfigurationValidator
 
             // If structure is invalid, don't proceed with detailed validation
             if (!empty($structureErrors)) {
+                error_log('Structure validation failed: ' . implode(', ', $structureErrors));
                 return $errors;
             }
 
             // Detailed field validation
             $fieldErrors = $this->validateFields($data);
             $errors = array_merge($errors, $fieldErrors);
+            if (!empty($fieldErrors)) {
+                error_log('Field validation failed: ' . implode(', ', $fieldErrors));
+            }
 
             // Business logic validation
             $businessErrors = $this->validateBusinessRules($data);
             $errors = array_merge($errors, $businessErrors);
+            if (!empty($businessErrors)) {
+                error_log('Business validation failed: ' . implode(', ', $businessErrors));
+            }
 
         } catch (Exception $e) {
             $errors[] = 'Validation error: ' . $e->getMessage();
@@ -219,8 +226,16 @@ class ConfigurationValidator
 
         // Validate headers
         if (isset($data['headers'])) {
-            $headerErrors = $this->validateHeaders($data['headers']);
-            $errors = array_merge($errors, $headerErrors);
+            // Ensure headers is an array
+            if (!is_array($data['headers'])) {
+                $errors[] = 'Headers must be an array';
+            } else {
+                $headerErrors = $this->validateHeaders($data['headers']);
+                $errors = array_merge($errors, $headerErrors);
+            }
+        } else {
+            // If headers is not set, default to empty array
+            $data['headers'] = [];
         }
 
         // Validate body
@@ -381,6 +396,11 @@ class ConfigurationValidator
 
         if (!is_array($headers)) {
             $errors[] = 'Headers must be an array';
+            return $errors;
+        }
+
+        // Handle empty headers array
+        if (empty($headers)) {
             return $errors;
         }
 

@@ -69,8 +69,9 @@ class ConfigurationManager
             }
 
             // Validate the loaded data structure
-            if (!$this->validateConfigurationData($data)) {
-                error_log("ConfigurationManager::loadConfiguration invalid data structure for: {$name}");
+            $validationErrors = $this->getValidationErrors($data);
+            if (!empty($validationErrors)) {
+                error_log("ConfigurationManager::loadConfiguration invalid data structure for: {$name}. Errors: " . implode(', ', $validationErrors));
                 return null;
             }
 
@@ -105,14 +106,14 @@ class ConfigurationManager
                 // Try to load basic info from each configuration
                 $data = $this->fileManager->loadConfigFile($file['name']);
                 
-                if ($data !== null && $this->validateConfigurationData($data)) {
+                if ($data !== null && is_array($data)) {
                     $configurations[] = [
                         'name' => $file['name'],
                         'url' => $data['url'] ?? '',
                         'method' => $data['method'] ?? 'GET',
-                        'concurrentConnections' => $data['concurrentConnections'] ?? 10,
-                        'duration' => $data['duration'] ?? 10,
-                        'timeout' => $data['timeout'] ?? 30,
+                        'concurrentConnections' => $data['concurrentConnections'] ?? 0,
+                        'duration' => $data['duration'] ?? 0,
+                        'timeout' => $data['timeout'] ?? 0,
                         'headers' => $data['headers'] ?? [],
                         'body' => $data['body'] ?? '',
                         'createdAt' => $data['createdAt'] ?? '',

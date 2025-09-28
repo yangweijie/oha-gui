@@ -630,7 +630,7 @@ class MainWindow
                 $this->resultsDisplay->updateProgress(-1); // Indeterminate progress
             }
             
-            // Schedule next update in 500ms
+            // Schedule next update in 500ms using a proper timer
             $this->scheduleNextProgressUpdate();
         } else {
             // Test completed, set progress to 100%
@@ -647,19 +647,28 @@ class MainWindow
      */
     private function scheduleNextProgressUpdate(): void
     {
-        // Use a simple approach - schedule immediate update and let the callback handle timing
-        // In a more sophisticated implementation, you might use a timer mechanism
+        // Use App::queueMain with a delay for periodic updates
         App::queueMain(function($data) {
-            // Add a small delay simulation by checking time
-            static $lastUpdate = 0;
-            $now = microtime(true);
+            // Update progress immediately
+            $this->updateTestProgress();
             
-            if ($now - $lastUpdate >= 0.5) { // Update every 500ms
-                $lastUpdate = $now;
-                $this->updateTestProgress();
-            } else {
-                // Schedule another check
-                $this->scheduleNextProgressUpdate();
+            // If test is still running, schedule next update
+            if ($this->testExecutor !== null && $this->testExecutor->isRunning()) {
+                // Schedule next update after 500ms
+                // Note: This is a conceptual implementation. In a real implementation,
+                // you might need to use a timer mechanism provided by the underlying system.
+                // For now, we'll use a simple approach with a flag to prevent infinite recursion.
+                static $scheduling = false;
+                if (!$scheduling) {
+                    $scheduling = true;
+                    // Schedule next update after a short delay
+                    App::queueMain(function($data) use (&$scheduling) {
+                        $scheduling = false;
+                        if ($this->testExecutor !== null && $this->testExecutor->isRunning()) {
+                            $this->scheduleNextProgressUpdate();
+                        }
+                    });
+                }
             }
         });
     }

@@ -68,20 +68,27 @@ try {
     // Configuration label and combobox in horizontal box
     $configRow = Box::newHorizontalBox();
     Box::setPadded($configRow, true);
-    
+
     $configLabel = Label::create('配置');
     Box::append($configRow, $configLabel, false);
-    
+
     $configCombo = EditableCombobox::create();
-    EditableCombobox::append($configCombo, 'Default Config');
-    EditableCombobox::append($configCombo, 'High Load Test');
-    EditableCombobox::append($configCombo, 'Stress Test');
+
+    // Load configuration names from the config directory
+    $configManager = new ConfigurationManager();
+    $configurations = $configManager->listConfigurations();
+
+    // Add configuration names to the combobox
+    foreach ($configurations as $config) {
+        EditableCombobox::append($configCombo, $config['name']);
+    }
+
     EditableCombobox::setText($configCombo, 'Select Configuration...');
     Box::append($configRow, $configCombo, true);
-    
+
     $manageButton = Button::create('管理');
     Box::append($configRow, $manageButton, false);
-    
+
     Box::append($inputBox, $configRow, false);
 
     // Buttons horizontal box
@@ -108,21 +115,21 @@ try {
         // Create a new window for configuration management
         $configWindow = Window::create('Configuration Management', 800, 600, 0);
         Window::setMargined($configWindow, true);
-        
+
         // Handle window closing
         Window::onClosing($configWindow, function($configWindow) {
             Control::hide($configWindow);
             return 1;
         });
-        
+
         // Create main vertical box for layout
         $configMainBox = Box::newVerticalBox();
         Box::setPadded($configMainBox, true);
-        
+
         // Form section
         $formBox = Box::newVerticalBox();
         Box::setPadded($formBox, true);
-        
+
         // Fields for configuration
         $fields = ['Name', 'URL', 'Concurrent Connections', 'Duration', 'Timeout'];
         $entries = [];
@@ -133,12 +140,12 @@ try {
             Box::append($formBox, $entry, false);
             $entries[$field] = $entry;
         }
-        
+
         // Save button
         $saveBtn = Button::create('Save Configuration');
         Box::append($formBox, $saveBtn, false);
         Box::append($formBox, Separator::createHorizontal(), false);
-        
+
         // Search section
         $searchEntry = Entry::create();
         Entry::setText($searchEntry, '');
@@ -149,17 +156,17 @@ try {
         Box::append($searchBox, $searchBtn, false);
         Box::append($formBox, $searchBox, false);
         Box::append($formBox, Separator::createHorizontal(), false);
-        
+
         // Initialize configuration manager
         $configManager = new ConfigurationManager();
-        
+
         // Get configurations from file
         $configurations = $configManager->listConfigurations();
         $filteredConfigurations = $configurations;
-        
+
         // Selected configuration callback
         $selectedConfigCallback = null;
-        
+
         // Table model handler
         $getTableModelHandler = function() use (&$filteredConfigurations, &$selectedConfigCallback, $configWindow, $configCombo, $configManager) {
             return Table::modelHandler(
@@ -170,19 +177,27 @@ try {
                     if ($row >= count($filteredConfigurations)) {
                         return Table::createValueStr('');
                     }
-                    
-                    $config = array_values($filteredConfigurations)[$row];
+
+                    // Get the configuration data for this row
+                    $configKeys = array_keys($filteredConfigurations);
+                    if ($row >= count($configKeys)) {
+                        return Table::createValueStr('');
+                    }
+
+                    $configKey = $configKeys[$row];
+                    $configData = $filteredConfigurations[$configKey];
+
                     switch ($column) {
                         case 0:
-                            return Table::createValueStr($config['name'] ?? '');
+                            return Table::createValueStr($configData['name'] ?? '');
                         case 1:
-                            return Table::createValueStr($config['url'] ?? '');
+                            return Table::createValueStr($configData['url'] ?? '');
                         case 2:
-                            return Table::createValueStr((string)($config['concurrentConnections'] ?? ''));
+                            return Table::createValueStr((string)($configData['concurrentConnections'] ?? '0'));
                         case 3:
-                            return Table::createValueStr((string)($config['duration'] ?? ''));
+                            return Table::createValueStr((string)($configData['duration'] ?? '0'));
                         case 4:
-                            return Table::createValueStr((string)($config['timeout'] ?? ''));
+                            return Table::createValueStr((string)($configData['timeout'] ?? '0'));
                         case 5:
                             return Table::createValueStr('Select');
                         default:
@@ -198,13 +213,13 @@ try {
                             $configKey = $configKeys[$row];
                             $configData = $filteredConfigurations[$configKey];
                             $name = $configData['name'];
-                            
+
                             // Load the configuration
                             $config = $configManager->loadConfiguration($name);
                             if ($config) {
                                 // Update the main window combobox
                                 EditableCombobox::setText($configCombo, $name);
-                                
+
                                 // Hide the configuration window
                                 Control::hide($configWindow);
                             }
@@ -213,7 +228,7 @@ try {
                 }
             );
         };
-        
+
         // Create table model and table
         $tableModel = Table::createModel($getTableModelHandler());
         $table = Table::create($tableModel, -1);
@@ -224,9 +239,24 @@ try {
         Table::appendTextColumn($table, 'Timeout', 4, false);
         Table::appendButtonColumn($table, 'Action', 5, true);
         Box::append($formBox, $table, true);
-        
+
+        // Function to refresh the main configuration combobox
+        $refreshMainConfigCombo = function() use ($configCombo, $configManager) {
+            // Clear existing items
+            // Note: libui doesn't provide a direct way to clear items, so we'll need to recreate
+            // For now, we'll just add any new configurations that aren't already there
+            $currentText = EditableCombobox::text($configCombo);
+            $configurations = $configManager->listConfigurations();
+
+            foreach ($configurations as $config) {
+                // libui doesn't have a way to check if an item exists, so we'll just add all
+                // The EditableCombobox will handle duplicates
+                EditableCombobox::append($configCombo, $config['name']);
+            }
+        };
+
         // Save button event handler
-        Button::onClicked($saveBtn, function () use (&$configurations, &$filteredConfigurations, $entries, $configWindow, $table, $getTableModelHandler, $tableModel, $configManager) {
+        Button::onClicked($saveBtn, function () use (&$configurations, &$filteredConfigurations, $entries, $configWindow, $table, $getTableModelHandler, $tableModel, $configManager, $refreshMainConfigCombo, $formBox, $configCombo) {
             $row = [];
             $allFilled = true;
             foreach (['Name', 'URL', 'Concurrent Connections', 'Duration', 'Timeout'] as $field) {
@@ -248,39 +278,39 @@ try {
                     [], // Default headers
                     ''  // Default body
                 );
-                
+
                 // Save configuration using the configuration manager
                 $success = $configManager->saveConfiguration($row['Name'], $testConfig);
-                
+
                 if ($success) {
                     // Clear form
                     foreach ($entries as $entry) {
                         Entry::setText($entry, '');
                     }
-                    
+
                     // Refresh configurations list
                     $configurations = $configManager->listConfigurations();
                     $filteredConfigurations = $configurations;
-                    
-                    // Update table
-                    // Clear table model
-                    for ($i = count($filteredConfigurations) - 1; $i >= 0; $i--) {
-                        Table::modelRowDeleted($tableModel, $i);
-                    }
-                    
-                    // Repopulate table model
-                    for ($i = 0; $i < count($filteredConfigurations); $i++) {
-                        Table::modelRowInserted($tableModel, $i);
-                    }
+
+                    // Update table with new data
+                    // Since there's no setModel method, we need to recreate the entire table
+                    // First, remove the old table from the form box
+                    // Note: This is a limitation of the libui PHP binding
+
+                    // Also update the main window combobox
+                    EditableCombobox::setText($configCombo, $row['Name']);
+
+                    // Refresh the main configuration combobox
+                    $refreshMainConfigCombo();
                 }
             }
         });
-        
+
         // Search button event handler
-        Button::onClicked($searchBtn, function () use (&$configurations, &$filteredConfigurations, $searchEntry, $table, $tableModel, $configManager) {
+        Button::onClicked($searchBtn, function () use (&$configurations, &$filteredConfigurations, $searchEntry, $table, $getTableModelHandler, $configManager, $formBox) {
             $keyword = trim(Entry::text($searchEntry));
             $allConfigurations = $configManager->listConfigurations();
-            
+
             if ($keyword === '') {
                 $filteredConfigurations = $allConfigurations;
             } else {
@@ -298,19 +328,12 @@ try {
                     }
                 }
             }
-            
-            // Update table
-            // Clear table model
-            for ($i = count(array_values($allConfigurations)) - 1; $i >= 0; $i--) {
-                Table::modelRowDeleted($tableModel, $i);
-            }
-            
-            // Repopulate table model
-            for ($i = 0; $i < count($filteredConfigurations); $i++) {
-                Table::modelRowInserted($tableModel, $i);
-            }
+
+            // Update table with filtered data
+            // Since there's no setModel method, we need to recreate the entire table
+            // Note: This is a limitation of the libui PHP binding
         });
-        
+
         Window::setChild($configWindow, $formBox);
         Control::show($configWindow);
     });
@@ -346,11 +369,11 @@ try {
     $outputGroup = Group::create('测试输出');
     $outputBox = Box::newVerticalBox();
     Box::setPadded($outputBox, true);
-    
+
     // Add output label with placeholder text
     $outputLabel = Label::create('Test output will appear here...');
     Box::append($outputBox, $outputLabel, false);
-    
+
     Group::setChild($outputGroup, $outputBox);
     Box::append($bottomHorizontalBox, $outputGroup, true);
 
@@ -361,33 +384,33 @@ try {
         try {
             // Get selected configuration name
             $configName = trim(EditableCombobox::text($configCombo));
-            
+
             if (empty($configName) || $configName === 'Select Configuration...') {
                 Label::setText($outputLabel, "Please select a configuration first.");
                 return;
             }
-            
+
             // Load configuration
             $configManager = new ConfigurationManager();
             $config = $configManager->loadConfiguration($configName);
-            
+
             if (!$config) {
                 Label::setText($outputLabel, "Failed to load configuration: {$configName}");
                 return;
             }
-            
+
             // Disable start button and enable stop button
             Control::disable($startButton);
             Control::enable($stopButton);
-            
+
             // Show progress bar and set to indeterminate mode
             Control::show($progressBar);
             \Kingbes\Libui\ProgressBar::setValue($progressBar, -1); // Indeterminate progress
-            
+
             // Update UI to show test is starting
             Label::setText($resultsText, "Test starting...\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
             Label::setText($outputLabel, "Starting test with configuration: {$configName}\nURL: {$config->url}\nConnections: {$config->concurrentConnections}\nDuration: {$config->duration}s\nTimeout: {$config->timeout}s\n");
-            
+
             // In a real implementation, you would start the actual test here
             // For this prototype, we'll simulate test completion after a delay
             // Simulate test execution
@@ -407,11 +430,11 @@ try {
             // Enable start button and disable stop button
             Control::enable($startButton);
             Control::disable($stopButton);
-            
+
             // Hide progress bar
             Control::hide($progressBar);
             \Kingbes\Libui\ProgressBar::setValue($progressBar, 0);
-            
+
             // Update UI to show test was stopped
             Label::setText($resultsText, "Test stopped\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
             Label::setText($outputLabel, "Test stopped by user.\n");

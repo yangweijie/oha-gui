@@ -176,7 +176,14 @@ class TestExecutor
             
             // Call completion callback
             if ($this->completionCallback) {
-                call_user_func($this->completionCallback, $this->exitCode, $error);
+                // Use App::queueMain to ensure the callback is executed on the main thread
+                if (class_exists('Kingbes\\Libui\\App')) {
+                    \Kingbes\Libui\App::queueMain(function() use ($error) {
+                        call_user_func($this->completionCallback, $this->exitCode, $error);
+                    });
+                } else {
+                    call_user_func($this->completionCallback, $this->exitCode, $error);
+                }
             }
             
             return false;
@@ -214,6 +221,27 @@ class TestExecutor
         }
 
         $this->isRunning = false;
+        
+        // Call completion callback with exit code -1 to indicate test was stopped
+        if ($this->completionCallback) {
+            // Use App::queueMain to ensure the callback is executed on the main thread
+            if (class_exists('Kingbes\\Libui\\App')) {
+                \Kingbes\Libui\App::queueMain(function() {
+                    call_user_func($this->completionCallback, -1, [
+                        'type' => 'test_stopped',
+                        'message' => 'Test was stopped by user',
+                        'suggestion' => 'Test execution was manually stopped'
+                    ]);
+                });
+            } else {
+                call_user_func($this->completionCallback, -1, [
+                    'type' => 'test_stopped',
+                    'message' => 'Test was stopped by user',
+                    'suggestion' => 'Test execution was manually stopped'
+                ]);
+            }
+        }
+        
         $this->cleanup();
 
         return $terminated;

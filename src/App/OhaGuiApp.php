@@ -4,6 +4,8 @@ namespace OhaGui\App;
 
 use Kingbes\Libui\App;
 use OhaGui\GUI\MainWindow;
+use RuntimeException;
+use Throwable;
 
 /**
  * Main OHA GUI Application class
@@ -34,9 +36,9 @@ class OhaGuiApp
             // Log successful initialization
             error_log("OHA GUI Application initialized successfully");
             
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("Failed to initialize OHA GUI Application: " . $e->getMessage());
-            throw new \RuntimeException("Application initialization failed: " . $e->getMessage(), 0, $e);
+            throw new RuntimeException("Application initialization failed: " . $e->getMessage(), 0, $e);
         }
     }
 
@@ -48,7 +50,7 @@ class OhaGuiApp
     public function run(): void
     {
         if (!$this->isRunning) {
-            throw new \RuntimeException('Application is not initialized or has been shut down');
+            throw new RuntimeException('Application is not initialized or has been shut down');
         }
 
         // Create and show the main window
@@ -102,13 +104,13 @@ class OhaGuiApp
                 
                 error_log("OHA GUI Application shutdown completed successfully");
                 
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 error_log("Error during application shutdown: " . $e->getMessage());
                 // Continue with shutdown even if cleanup fails
                 try {
                     App::quit();
                     App::unInit();
-                } catch (\Throwable $cleanupError) {
+                } catch (Throwable $cleanupError) {
                     error_log("Critical error during final cleanup: " . $cleanupError->getMessage());
                 }
             }

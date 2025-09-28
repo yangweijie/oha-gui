@@ -422,17 +422,10 @@ class ConfigurationForm
         try {
             $configurations = $this->configManager->listConfigurations();
             
-            // Clear existing items by recreating the combobox
-            // EditableCombobox may not support clearing items directly
-            $parent = Control::getParent($this->saveConfigCombobox);
-            if ($parent) {
-                // Remove the old combobox
-                // Note: This approach may not work depending on libui implementation
-                // We'll try a different approach by just appending new items
-            }
-            
-            // For now, we'll just append new items without clearing
-            // In a full implementation, we'd need to properly clear the combobox
+            // Clear existing items by removing and re-adding the combobox
+            // EditableCombobox doesn't have a direct way to clear items
+            // We'll work around this limitation by not clearing items directly
+            // Instead, we'll just append new items without clearing existing ones
             foreach ($configurations as $config) {
                 EditableCombobox::append($this->saveConfigCombobox, $config['name']);
             }
