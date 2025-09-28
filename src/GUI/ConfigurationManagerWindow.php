@@ -305,6 +305,9 @@ class ConfigurationManagerWindow
     private function refreshConfigurations(): void
     {
         $this->configurations = $this->configManager->listConfigurations();
+        
+        // Debug: Log the number of configurations
+        error_log("Refreshing configurations. Count: " . count($this->configurations));
 
         // Clear table model
         $currentCount = Table::modelNumRows($this->tableModel);
@@ -418,6 +421,7 @@ class ConfigurationManagerWindow
             $success = $this->configManager->saveConfiguration($name, $config);
 
             if ($success) {
+                error_log("Configuration saved successfully: " . $name);
                 // Refresh configurations list
                 $this->refreshConfigurations();
 
@@ -428,9 +432,15 @@ class ConfigurationManagerWindow
                     // Clear name field but keep other values for quick successive saves
                     Entry::setText($this->entries['name'], '');
                 }
+            } else {
+                error_log("Failed to save configuration: " . $name);
+                // Show error - failed to save
+                // In a real implementation, you would show an error message to the user
             }
         } catch (Exception $e) {
+            error_log("Exception while saving configuration: " . $e->getMessage());
             // Show error
+            // In a real implementation, you would show an error message to the user
         }
     }
 
