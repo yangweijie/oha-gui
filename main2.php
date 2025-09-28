@@ -34,6 +34,7 @@ use Kingbes\Libui\Table;
 use Kingbes\Libui\TableValueType;
 use Kingbes\Libui\EditableCombobox;
 use Kingbes\Libui\Separator;
+use Kingbes\Libui\ProgressBar;
 use OhaGui\Core\ConfigurationManager;
 use OhaGui\Models\TestConfiguration;
 
@@ -317,57 +318,6 @@ try {
     Group::setChild($inputGroup, $inputBox);
     Box::append($topHorizontalBox, $inputGroup, true);
 
-    // Add event handlers for start and stop buttons
-    Button::onClicked($startButton, function() use ($startButton, $stopButton, $progressBar, $configCombo, $resultsText, $outputLabel) {
-        // Get selected configuration name
-        $configName = trim(EditableCombobox::text($configCombo));
-        
-        if (empty($configName) || $configName === 'Select Configuration...') {
-            Label::setText($outputLabel, "Please select a configuration first.");
-            return;
-        }
-        
-        // Load configuration
-        $configManager = new ConfigurationManager();
-        $config = $configManager->loadConfiguration($configName);
-        
-        if (!$config) {
-            Label::setText($outputLabel, "Failed to load configuration: {$configName}");
-            return;
-        }
-        
-        // Disable start button and enable stop button
-        Control::disable($startButton);
-        Control::enable($stopButton);
-        
-        // Show progress bar and set to indeterminate mode
-        Control::show($progressBar);
-        \Kingbes\Libui\ProgressBar::setValue($progressBar, -1); // Indeterminate progress
-        
-        // Update UI to show test is starting
-        Label::setText($resultsText, "Test starting...\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
-        Label::setText($outputLabel, "Starting test with configuration: {$configName}\nURL: {$config->url}\nConnections: {$config->concurrentConnections}\nDuration: {$config->duration}s\nTimeout: {$config->timeout}s\n");
-        
-        // In a real implementation, you would start the actual test here
-        // For this prototype, we'll simulate test completion after a delay
-        // Simulate test execution
-        Label::setText($outputLabel, "Test in progress...\nThis is a prototype. In a real implementation, this would show actual test output.\n");
-    });
-
-    Button::onClicked($stopButton, function() use ($startButton, $stopButton, $progressBar, $resultsText, $outputLabel) {
-        // Enable start button and disable stop button
-        Control::enable($startButton);
-        Control::disable($stopButton);
-        
-        // Hide progress bar
-        Control::hide($progressBar);
-        \Kingbes\Libui\ProgressBar::setValue($progressBar, 0);
-        
-        // Update UI to show test was stopped
-        Label::setText($resultsText, "Test stopped\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
-        Label::setText($outputLabel, "Test stopped by user.\n");
-    });
-
     // Results group (right side)
     $resultsGroup = Group::create('结果');
     $resultsBox = Box::newVerticalBox();
@@ -405,6 +355,74 @@ try {
     Box::append($bottomHorizontalBox, $outputGroup, true);
 
     Box::append($mainBox, $bottomHorizontalBox, true);
+
+    // Add event handlers for start and stop buttons
+    Button::onClicked($startButton, function() use ($startButton, $stopButton, $progressBar, $configCombo, $resultsText, $outputLabel) {
+        try {
+            // Get selected configuration name
+            $configName = trim(EditableCombobox::text($configCombo));
+            
+            if (empty($configName) || $configName === 'Select Configuration...') {
+                Label::setText($outputLabel, "Please select a configuration first.");
+                return;
+            }
+            
+            // Load configuration
+            $configManager = new ConfigurationManager();
+            $config = $configManager->loadConfiguration($configName);
+            
+            if (!$config) {
+                Label::setText($outputLabel, "Failed to load configuration: {$configName}");
+                return;
+            }
+            
+            // Disable start button and enable stop button
+            Control::disable($startButton);
+            Control::enable($stopButton);
+            
+            // Show progress bar and set to indeterminate mode
+            Control::show($progressBar);
+            \Kingbes\Libui\ProgressBar::setValue($progressBar, -1); // Indeterminate progress
+            
+            // Update UI to show test is starting
+            Label::setText($resultsText, "Test starting...\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
+            Label::setText($outputLabel, "Starting test with configuration: {$configName}\nURL: {$config->url}\nConnections: {$config->concurrentConnections}\nDuration: {$config->duration}s\nTimeout: {$config->timeout}s\n");
+            
+            // In a real implementation, you would start the actual test here
+            // For this prototype, we'll simulate test completion after a delay
+            // Simulate test execution
+            Label::setText($outputLabel, "Test in progress...\nThis is a prototype. In a real implementation, this would show actual test output.\n");
+        } catch (Exception $e) {
+            // Handle errors gracefully in FFI callbacks
+            error_log("Error in start button callback: " . $e->getMessage());
+            Label::setText($outputLabel, "Error starting test: " . $e->getMessage());
+            Control::enable($startButton);
+            Control::disable($stopButton);
+            Control::hide($progressBar);
+        }
+    });
+
+    Button::onClicked($stopButton, function() use ($startButton, $stopButton, $progressBar, $resultsText, $outputLabel) {
+        try {
+            // Enable start button and disable stop button
+            Control::enable($startButton);
+            Control::disable($stopButton);
+            
+            // Hide progress bar
+            Control::hide($progressBar);
+            \Kingbes\Libui\ProgressBar::setValue($progressBar, 0);
+            
+            // Update UI to show test was stopped
+            Label::setText($resultsText, "Test stopped\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
+            Label::setText($outputLabel, "Test stopped by user.\n");
+        } catch (Exception $e) {
+            // Handle errors gracefully in FFI callbacks
+            error_log("Error in stop button callback: " . $e->getMessage());
+            Label::setText($outputLabel, "Error stopping test: " . $e->getMessage());
+        }
+    });
+
+    // Add event handler for manage button
 
     // Set window content
     Window::setChild($window, $mainBox);
