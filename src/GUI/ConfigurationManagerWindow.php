@@ -117,6 +117,20 @@ class ConfigurationManagerWindow
         Box::append($this->formBox, $timeoutLabel, false);
         Box::append($this->formBox, $this->entries['timeout'], false);
 
+        // Headers field (multiline)
+        $headersLabel = Label::create('Headers:');
+        $this->entries['headers'] = \Kingbes\Libui\MultilineEntry::create();
+        \Kingbes\Libui\MultilineEntry::setText($this->entries['headers'], "Content-Type: application/json\nUser-Agent: OHA-GUI-Tool");
+        Box::append($this->formBox, $headersLabel, false);
+        Box::append($this->formBox, $this->entries['headers'], false);
+
+        // Body field (multiline)
+        $bodyLabel = Label::create('Request Body:');
+        $this->entries['body'] = \Kingbes\Libui\MultilineEntry::create();
+        \Kingbes\Libui\MultilineEntry::setText($this->entries['body'], '{"key": "value"}');
+        Box::append($this->formBox, $bodyLabel, false);
+        Box::append($this->formBox, $this->entries['body'], false);
+
         // Buttons
         $buttonBox = Box::newHorizontalBox();
         Box::setPadded($buttonBox, true);
@@ -155,7 +169,7 @@ class ConfigurationManagerWindow
         // Table model handler
         $getTableModelHandler = function () {
             return Table::modelHandler(
-                7, // 7 columns: Name, URL, Method, Connections, Duration, Timeout, Actions
+                9, // 9 columns: Name, URL, Method, Connections, Duration, Timeout, Headers, Body, Actions
                 TableValueType::String,
                 count($this->configurations),
                 function ($handler, $row, $column) {
@@ -178,6 +192,16 @@ class ConfigurationManagerWindow
                         case 5:
                             return Table::createValueStr((string)($config['timeout'] ?? ''));
                         case 6:
+                            // Format headers for display
+                            $headers = $config['headers'] ?? [];
+                            $headerCount = count($headers);
+                            return Table::createValueStr($headerCount > 0 ? "$headerCount headers" : "None");
+                        case 7:
+                            // Format body for display
+                            $body = $config['body'] ?? '';
+                            $bodyLength = strlen($body);
+                            return Table::createValueStr($bodyLength > 0 ? "$bodyLength chars" : "Empty");
+                        case 8:
                             return Table::createValueStr('Edit/Delete');
                         default:
                             return Table::createValueStr('');
@@ -197,13 +221,58 @@ class ConfigurationManagerWindow
         Table::appendTextColumn($this->table, 'Connections', 3, false);
         Table::appendTextColumn($this->table, 'Duration', 4, false);
         Table::appendTextColumn($this->table, 'Timeout', 5, false);
+        Table::appendTextColumn($this->table, 'Headers', 6, false);
+        Table::appendTextColumn($this->table, 'Body', 7, false);
 
-        Table::appendTextColumn($this->table, 'Actions', 6, false);
+        Table::appendTextColumn($this->table, 'Actions', 8, false);
 
         // Note: Row click handlers are not supported in this version of libui
         // Editing and deletion will be handled through separate buttons
 
         Box::append($this->formBox, $this->table, true);
+    }
+
+    /**
+     * Parse headers from multiline text
+     *
+     * @param string $headersText
+     * @return array
+     */
+    private function parseHeaders(string $headersText): array
+    {
+        $headers = [];
+        $lines = explode("\n", $headersText);
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) continue;
+
+            $parts = explode(':', $line, 2);
+            if (count($parts) === 2) {
+                $key = trim($parts[0]);
+                $value = trim($parts[1]);
+                if (!empty($key)) {
+                    $headers[$key] = $value;
+                }
+            }
+        }
+
+        return $headers;
+    }
+
+    /**
+     * Format headers array to multiline text
+     *
+     * @param array $headers
+     * @return string
+     */
+    private function formatHeaders(array $headers): string
+    {
+        $lines = [];
+        foreach ($headers as $key => $value) {
+            $lines[] = "$key: $value";
+        }
+        return implode("\n", $lines);
     }
 
     /**
@@ -293,6 +362,11 @@ class ConfigurationManagerWindow
         $duration = (int)Entry::text($this->entries['duration']);
         $timeout = (int)Entry::text($this->entries['timeout']);
 
+        // Get headers and body
+        $headersText = \Kingbes\Libui\MultilineEntry::text($this->entries['headers']);
+        $headers = $this->parseHeaders($headersText);
+        $body = \Kingbes\Libui\MultilineEntry::text($this->entries['body']);
+
         // Create configuration object
         $config = new TestConfiguration(
             $name,
@@ -301,8 +375,8 @@ class ConfigurationManagerWindow
             $connections,
             $duration,
             $timeout,
-            [], // headers
-            ''  // body
+            $headers,
+            $body
         );
 
         // Validate configuration
@@ -354,6 +428,10 @@ class ConfigurationManagerWindow
                 Entry::setText($entry, '10');
             } elseif ($key === 'timeout') {
                 Entry::setText($entry, '30');
+            } elseif ($key === 'headers') {
+                \Kingbes\Libui\MultilineEntry::setText($entry, "Content-Type: application/json\nUser-Agent: OHA-GUI-Tool");
+            } elseif ($key === 'body') {
+                \Kingbes\Libui\MultilineEntry::setText($entry, '{"key": "value"}');
             } else {
                 Entry::setText($entry, '');
             }
@@ -412,6 +490,10 @@ class ConfigurationManagerWindow
                 Entry::setText($this->entries['connections'], (string)$config->concurrentConnections);
                 Entry::setText($this->entries['duration'], (string)$config->duration);
                 Entry::setText($this->entries['timeout'], (string)$config->timeout);
+
+                // Populate headers and body
+                \Kingbes\Libui\MultilineEntry::setText($this->entries['headers'], $this->formatHeaders($config->headers));
+                \Kingbes\Libui\MultilineEntry::setText($this->entries['body'], $config->body);
 
                 // Set editing state
                 $this->editingConfigName = $name;

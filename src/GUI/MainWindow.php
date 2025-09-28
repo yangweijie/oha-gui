@@ -2,10 +2,13 @@
 
 namespace OhaGui\GUI;
 
+use Kingbes\Libui\App;
+use Kingbes\Libui\Menu;
 use Kingbes\Libui\Window;
 use Kingbes\Libui\Box;
 use Kingbes\Libui\Control;
 use FFI\CData;
+use Kingbes\Libui\Window\MsgBox;
 use OhaGui\Core\TestExecutor;
 use OhaGui\Core\OhaCommandBuilder;
 use OhaGui\Core\ResultParser;
@@ -96,32 +99,45 @@ class MainWindow
         $this->mainBox = Box::newVerticalBox();
         Box::setPadded($this->mainBox, true);
 
-        // Create horizontal box for main content with resizable panels
-        $contentBox = Box::newHorizontalBox();
-        Box::setPadded($contentBox, true);
+        // Add a title label
+        $titleLabel = \Kingbes\Libui\Label::create('OHA GUI Tool');
+        Box::append($this->mainBox, $titleLabel, false);
 
-        // Create left panel container (resizable) - Configuration Form only
-        $leftPanelContainer = Box::newVerticalBox();
-        Box::setPadded($leftPanelContainer, true);
+        // Add some vertical spacing
+        $spacer1 = \Kingbes\Libui\Label::create('');
+        Box::append($this->mainBox, $spacer1, false);
+
+        // Create a horizontal box to center the content
+        $centerBox = Box::newHorizontalBox();
+        Box::setPadded($centerBox, true);
+
+        // Left spacer
+        $leftSpacer = \Kingbes\Libui\Label::create('');
+        Box::append($centerBox, $leftSpacer, true);
+
+        // Center content
+        $contentBox = Box::newVerticalBox();
+        Box::setPadded($contentBox, true);
 
         // Create configuration form
         $this->configForm = new ConfigurationForm();
-        Box::append($leftPanelContainer, $this->configForm->getControl(), true);
+        Box::append($contentBox, $this->configForm->getControl(), false);
 
-        // Create right panel container (resizable) - Results Display
-        $rightPanelContainer = Box::newVerticalBox();
-        Box::setPadded($rightPanelContainer, true);
+        Box::append($centerBox, $contentBox, false);
+
+        // Right spacer
+        $rightSpacer = \Kingbes\Libui\Label::create('');
+        Box::append($centerBox, $rightSpacer, true);
+
+        Box::append($this->mainBox, $centerBox, true);
+
+        // Add some vertical spacing
+        $spacer2 = \Kingbes\Libui\Label::create('');
+        Box::append($this->mainBox, $spacer2, false);
 
         // Create results display
         $this->resultsDisplay = new ResultsDisplay();
-        Box::append($rightPanelContainer, $this->resultsDisplay->getControl(), true);
-
-        // Add panels to content box with stretching enabled
-        Box::append($contentBox, $leftPanelContainer, true);  // Left panel can stretch
-        Box::append($contentBox, $rightPanelContainer, true); // Right panel can stretch
-
-        // Add content box to main box
-        Box::append($this->mainBox, $contentBox, true);
+        Box::append($this->mainBox, $this->resultsDisplay->getControl(), true);
 
         // Set the main box as window child
         Window::setChild($this->window, $this->mainBox);
@@ -170,8 +186,6 @@ class MainWindow
             $this->showConfigurationManager();
         });
 
-
-
         // Connect results display save functionality
         $this->resultsDisplay->setOnSaveResultsCallback(function($result) {
             $this->saveTestResults($result);
@@ -189,7 +203,7 @@ class MainWindow
         if ($this->testExecutor !== null && $this->testExecutor->isRunning()) {
             try {
                 if (class_exists('Kingbes\Libui\Window\MsgBox')) {
-                    $response = \Kingbes\Libui\Window\MsgBox::question(
+                    $response = MsgBox::question(
                         $this->window,
                         'Test Running',
                         'A test is currently running. Do you want to stop it and exit?'
@@ -331,10 +345,6 @@ class MainWindow
                 return;
             }
 
-            // Build command
-            if ($this->commandBuilder === null) {
-                throw new Exception('Command builder not initialized');
-            }
             $command = $this->commandBuilder->buildCommand($config);
             
             // Clear previous results and show test starting
@@ -352,7 +362,7 @@ class MainWindow
                 $command,
                 function($output) {
                     // Real-time output callback - use queueMain for thread-safe GUI updates
-                    \Kingbes\Libui\App::queueMain(function($data) use ($output) {
+                    App::queueMain(function($data) use ($output) {
                         if ($this->resultsDisplay !== null) {
                             $this->resultsDisplay->appendOutput($output);
                         }
@@ -360,13 +370,13 @@ class MainWindow
                 },
                 function($error) {
                     // Enhanced error callback with guidance - use queueMain for thread-safe GUI updates
-                    \Kingbes\Libui\App::queueMain(function($data) use ($error) {
+                    App::queueMain(function($data) use ($error) {
                         $this->handleTestExecutionError($error);
                     });
                 },
                 function($exitCode, $error = null) {
                     // Completion callback - use queueMain for thread-safe GUI updates
-                    \Kingbes\Libui\App::queueMain(function($data) use ($exitCode, $error) {
+                    App::queueMain(function($data) use ($exitCode, $error) {
                         $this->onTestCompleted($exitCode, $error);
                     });
                 }
@@ -598,7 +608,7 @@ class MainWindow
      */
     private function scheduleProgressUpdate(): void
     {
-        \Kingbes\Libui\App::queueMain(function($data) {
+        App::queueMain(function($data) {
             $this->updateTestProgress();
         });
     }
@@ -639,7 +649,7 @@ class MainWindow
     {
         // Use a simple approach - schedule immediate update and let the callback handle timing
         // In a more sophisticated implementation, you might use a timer mechanism
-        \Kingbes\Libui\App::queueMain(function($data) {
+        App::queueMain(function($data) {
             // Add a small delay simulation by checking time
             static $lastUpdate = 0;
             $now = microtime(true);
@@ -819,76 +829,6 @@ class MainWindow
     }
 
     /**
-     * Implement keyboard shortcuts if supported by libui
-     * 
-     * @return void
-     */
-    private function implementKeyboardShortcuts(): void
-    {
-        try {
-            // If libui supports key event handling
-            if (method_exists('Kingbes\Libui\Window', 'onKeyEvent')) {
-                \Kingbes\Libui\Window::onKeyEvent($this->window, function($key, $modifiers) {
-                    $this->handleKeyboardShortcut($key, $modifiers);
-                });
-            } else {
-                // Log that keyboard shortcuts are not available
-                error_log("Keyboard shortcuts not supported by current libui version");
-            }
-        } catch (Exception $e) {
-            error_log("Could not implement keyboard shortcuts: " . $e->getMessage());
-        }
-    }
-
-    /**
-     * Handle keyboard shortcut events
-     * 
-     * @param string $key Pressed key
-     * @param array $modifiers Modifier keys (Ctrl, Alt, Shift)
-     * @return void
-     */
-    private function handleKeyboardShortcut(string $key, array $modifiers): void
-    {
-        $isCtrl = in_array('Ctrl', $modifiers);
-        $isAlt = in_array('Alt', $modifiers);
-        $isShift = in_array('Shift', $modifiers);
-        
-        try {
-            // Handle specific key combinations
-            if ($isCtrl && strtolower($key) === 's') {
-                // Ctrl+S: Save configuration
-                $this->showSaveConfigurationDialog();
-            } elseif ($isCtrl && strtolower($key) === 'o') {
-                // Ctrl+O: Load configuration (focus on configuration form)
-                $this->focusConfigurationForm();
-            } elseif ($isCtrl && strtolower($key) === 'n') {
-                // Ctrl+N: New configuration (clear form)
-                $this->clearConfigurationForm();
-            } elseif ($key === 'F5') {
-                // F5: Start test
-                $this->startTestFromShortcut();
-            } elseif ($key === 'Escape') {
-                // Esc: Stop test
-                $this->stopTest();
-            } elseif ($isCtrl && strtolower($key) === 'q') {
-                // Ctrl+Q: Quit application
-                $this->onClosing();
-            } elseif ($key === 'F1') {
-                // F1: Show help
-                $this->showHelpDialog();
-            } elseif ($isCtrl && strtolower($key) === 'r') {
-                // Ctrl+R: Clear results
-                $this->clearResults();
-            } elseif ($isCtrl && strtolower($key) === 'e') {
-                // Ctrl+E: Export results
-                $this->exportResults();
-            }
-        } catch (Exception $e) {
-            error_log("Error handling keyboard shortcut: " . $e->getMessage());
-        }
-    }
-
-    /**
      * Create menu system if supported by libui
      * 
      * @return void
@@ -916,42 +856,39 @@ class MainWindow
     {
         try {
             // File menu
-            $fileMenu = \Kingbes\Libui\Menu::create('File');
-            \Kingbes\Libui\Menu::appendItem($fileMenu, 'New Configuration', function() {
+            $fileMenu = Menu::create('File');
+            Menu::appendItem($fileMenu, 'New Configuration', function() {
                 $this->clearConfigurationForm();
             });
-            \Kingbes\Libui\Menu::appendItem($fileMenu, 'Load Configuration...', function() {
+            Menu::appendItem($fileMenu, 'Load Configuration...', function() {
                 $this->focusConfigurationForm();
             });
-            \Kingbes\Libui\Menu::appendItem($fileMenu, 'Save Configuration...', function() {
-                $this->showSaveConfigurationDialog();
-            });
-            \Kingbes\Libui\Menu::appendSeparator($fileMenu);
-            \Kingbes\Libui\Menu::appendItem($fileMenu, 'Export Results...', function() {
+            Menu::appendSeparator($fileMenu);
+            Menu::appendItem($fileMenu, 'Export Results...', function() {
                 $this->exportResults();
             });
-            \Kingbes\Libui\Menu::appendSeparator($fileMenu);
-            \Kingbes\Libui\Menu::appendQuitItem($fileMenu);
+            Menu::appendSeparator($fileMenu);
+            Menu::appendQuitItem($fileMenu);
 
             // Test menu
-            $testMenu = \Kingbes\Libui\Menu::create('Test');
-            \Kingbes\Libui\Menu::appendItem($testMenu, 'Start Test', function() {
+            $testMenu = Menu::create('Test');
+            Menu::appendItem($testMenu, 'Start Test', function() {
                 $this->startTestFromShortcut();
             });
-            \Kingbes\Libui\Menu::appendItem($testMenu, 'Stop Test', function() {
+            Menu::appendItem($testMenu, 'Stop Test', function() {
                 $this->stopTest();
             });
-            \Kingbes\Libui\Menu::appendSeparator($testMenu);
-            \Kingbes\Libui\Menu::appendItem($testMenu, 'Clear Results', function() {
+            Menu::appendSeparator($testMenu);
+            Menu::appendItem($testMenu, 'Clear Results', function() {
                 $this->clearResults();
             });
 
             // Help menu
-            $helpMenu = \Kingbes\Libui\Menu::create('Help');
-            \Kingbes\Libui\Menu::appendItem($helpMenu, 'Keyboard Shortcuts', function() {
+            $helpMenu = Menu::create('Help');
+            Menu::appendItem($helpMenu, 'Keyboard Shortcuts', function() {
                 $this->showKeyboardShortcutsHelp();
             });
-            \Kingbes\Libui\Menu::appendItem($helpMenu, 'About OHA GUI Tool', function() {
+            Menu::appendItem($helpMenu, 'About OHA GUI Tool', function() {
                 $this->showAboutDialog();
             });
             
@@ -994,8 +931,6 @@ class MainWindow
                     error_log("Error cleaning up configuration form: " . $e->getMessage());
                 }
             }
-
-
 
             if (isset($this->resultsDisplay)) {
                 try {
@@ -1052,7 +987,7 @@ class MainWindow
         // Also try to show a message box if available
         try {
             if (class_exists('Kingbes\Libui\Window\MsgBox')) {
-                \Kingbes\Libui\Window\MsgBox::error($this->window, $title, $fullMessage);
+                MsgBox::error($this->window, $title, $fullMessage);
             }
         } catch (Exception $e) {
             // If message box fails, the error is already shown in results area
@@ -1311,7 +1246,7 @@ class MainWindow
             }
             
             if (class_exists('Kingbes\Libui\Window\MsgBox')) {
-                \Kingbes\Libui\Window\MsgBox::info($this->window, 'Keyboard Shortcuts', $shortcutsText);
+                MsgBox::info($this->window, 'Keyboard Shortcuts', $shortcutsText);
             } else {
                 // Fallback: display in results area
                 if ($this->resultsDisplay) {
@@ -1341,7 +1276,7 @@ class MainWindow
                         "Built with PHP and libui.";
             
             if (class_exists('Kingbes\Libui\Window\MsgBox')) {
-                \Kingbes\Libui\Window\MsgBox::info($this->window, 'About OHA GUI Tool', $aboutText);
+                MsgBox::info($this->window, 'About OHA GUI Tool', $aboutText);
             } else {
                 // Fallback: display in results area
                 if ($this->resultsDisplay) {
@@ -1365,7 +1300,7 @@ class MainWindow
 
         try {
             if (class_exists('Kingbes\Libui\Window\MsgBox')) {
-                \Kingbes\Libui\Window\MsgBox::info($this->window, 'Help - OHA GUI Tool', $helpText);
+                MsgBox::info($this->window, 'Help - OHA GUI Tool', $helpText);
             } else {
                 $this->resultsDisplay->appendOutput($helpText . "\n");
             }

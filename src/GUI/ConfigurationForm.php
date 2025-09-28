@@ -26,31 +26,28 @@ use Exception;
 class ConfigurationForm
 {
     private CData $form;
-    private CData $urlEntry;
-    private CData $methodCombobox;
-    private CData $connectionsSpinbox;
-    private CData $durationSpinbox;
-    private CData $timeoutSpinbox;
-    private CData $headersEntry;
-    private CData $bodyEntry;
-    private CData $startButton;
-    private CData $stopButton;
     private CData $saveConfigCombobox;
     private CData $saveButton;
     private CData $loadButton;
     private CData $manageButton;
     private CData $validationLabel;
     private CData $detailedValidationLabel;
-    
+    private CData $startButton;
+    private CData $stopButton;
+
     private array $validationErrors = [];
     private array $validationResult = [];
     private InputValidator $validator;
     private ConfigurationManager $configManager;
+
     private $onStartTestCallback = null;
     private $onStopTestCallback = null;
     private $onSaveConfigCallback = null;
     private $onLoadConfigCallback = null;
     private $onManageConfigCallback = null;
+
+    // Currently loaded configuration
+    private ?TestConfiguration $currentConfig = null;
 
     /**
      * Initialize the configuration form
@@ -95,6 +92,11 @@ class ConfigurationForm
 
         Form::append($this->form, 'Configuration:', $configBox, false);
 
+        // Add immediate loading when configuration is selected
+        EditableCombobox::onChanged($this->saveConfigCombobox, function($combobox) {
+            $this->onConfigurationSelected();
+        });
+
         // Validation Labels
         $this->validationLabel = Label::create('');
         Form::append($this->form, '', $this->validationLabel, false);
@@ -119,6 +121,14 @@ class ConfigurationForm
 
         $this->setupEventHandlers();
     }
+
+    /**
+     * Set configuration values to form fields
+     * 
+     * @param array $config Configuration data
+     * @return void
+     */
+
 
     /**
      * Setup event handlers for form controls
@@ -160,6 +170,38 @@ class ConfigurationForm
         // Trigger callback if set
         if ($this->onManageConfigCallback) {
             ($this->onManageConfigCallback)();
+        }
+    }
+
+    /**
+     * Handle configuration selection from dropdown
+     *
+     * @return void
+     */
+    private function onConfigurationSelected(): void
+    {
+        $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
+
+        // Only load if a valid configuration name is selected
+        if (!empty($configName)) {
+            try {
+                // Check if configuration exists
+                if ($this->configManager->configurationExists($configName)) {
+                    // Load the configuration
+                    $config = $this->configManager->loadConfiguration($configName);
+                    if ($config) {
+                        // Store the loaded configuration
+                        $this->currentConfig = $config;
+
+                        // Trigger callback to load configuration in main window
+                        if ($this->onLoadConfigCallback) {
+                            ($this->onLoadConfigCallback)($config);
+                        }
+                    }
+                }
+            } catch (Exception $e) {
+                error_log("Error loading configuration: " . $e->getMessage());
+            }
         }
     }
 
@@ -393,34 +435,14 @@ class ConfigurationForm
     }
 
     /**
-     * Get the current configuration from form fields
-     * 
-     * @return array Configuration data
+     * Get current configuration
+     *
+     * @return TestConfiguration
      */
-    public function getConfiguration(): array
+    public function getConfiguration(): TestConfiguration
     {
-        // Collect all form field values
-        $url = Entry::text($this->urlEntry);
-        $method = Combobox::selected($this->methodCombobox);
-        $connections = Spinbox::value($this->connectionsSpinbox);
-        $duration = Spinbox::value($this->durationSpinbox);
-        $timeout = Spinbox::value($this->timeoutSpinbox);
-        $headersText = MultilineEntry::text($this->headersEntry);
-        $body = MultilineEntry::text($this->bodyEntry);
-
-        // Parse headers
-        $headers = $this->parseHeaders($headersText);
-
-        // Return configuration array
-        return [
-            'url' => $url,
-            'method' => $method,
-            'connections' => $connections,
-            'duration' => $duration,
-            'timeout' => $timeout,
-            'headers' => $headers,
-            'body' => $body,
-        ];
+        // Return the currently loaded configuration, or a default one if none loaded
+        return $this->currentConfig ?? new TestConfiguration();
     }
 
 

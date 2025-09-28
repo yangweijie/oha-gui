@@ -17,7 +17,7 @@ declare(strict_types=1);
 // Set error reporting for development
 error_reporting(E_ALL);
 ini_set('display_errors', '1');
-ini_set('datetime_zone', 'asai/shanghai');
+date_default_timezone_set('Asia/Shanghai');
 
 // Define application constants
 define('APP_NAME', 'OHA GUI Tool');
