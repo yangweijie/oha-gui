@@ -285,7 +285,8 @@ class ConfigurationManagerWindow
         $this->configurations = $this->configManager->listConfigurations();
 
         // Clear table model
-        for ($i = count($this->configurations) - 1; $i >= 0; $i--) {
+        $currentCount = Table::modelNumRows($this->tableModel);
+        for ($i = $currentCount - 1; $i >= 0; $i--) {
             Table::modelRowDeleted($this->tableModel, $i);
         }
 
