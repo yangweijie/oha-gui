@@ -272,11 +272,11 @@ class ConfigurationValidator
         }
 
         // Validate timeout is not greater than duration
-        if (isset($data['timeout']) && isset($data['duration'])) {
-            if ($data['timeout'] > $data['duration']) {
-                $errors[] = 'Timeout cannot be greater than test duration';
-            }
-        }
+//        if (isset($data['timeout']) && isset($data['duration'])) {
+//            if ($data['timeout'] > $data['duration']) {
+//                $errors[] = 'Timeout cannot be greater than test duration';
+//            }
+//        }
 
         // Validate reasonable concurrent connections for duration
         if (isset($data['concurrentConnections']) && isset($data['duration'])) {

@@ -431,11 +431,11 @@ class InputValidator
         $result['isValid'] = true;
 
         // Check timeout vs duration
-        if ($config->timeout > $config->duration) {
-            $result['isValid'] = false;
-            $result['errors'][] = 'Timeout cannot be greater than test duration';
-            $result['fieldErrors']['timeout'] = 'Timeout must be less than or equal to duration';
-        }
+//        if ($config->timeout > $config->duration) {
+//            $result['isValid'] = false;
+//            $result['errors'][] = 'Timeout cannot be greater than test duration';
+//            $result['fieldErrors']['timeout'] = 'Timeout must be less than or equal to duration';
+//        }
 
         // Check for excessive load
         $totalRequests = $config->concurrentConnections * $config->duration;

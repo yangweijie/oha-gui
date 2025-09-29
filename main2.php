@@ -36,7 +36,12 @@ use Kingbes\Libui\EditableCombobox;
 use Kingbes\Libui\Separator;
 use Kingbes\Libui\ProgressBar;
 use OhaGui\Core\ConfigurationManager;
+use OhaGui\Core\TestExecutor;
+use OhaGui\Core\OhaCommandBuilder;
+use OhaGui\Core\ResultParser;
 use OhaGui\Models\TestConfiguration;
+use OhaGui\Utils\UserGuidance;
+use OhaGui\Utils\CrossPlatform;
 
 try {
     // Initialize libui
@@ -105,8 +110,8 @@ try {
     Box::append($inputBox, $buttonsBox, false);
 
     // Progress bar (initially hidden)
-    $progressBar = \Kingbes\Libui\ProgressBar::create();
-    \Kingbes\Libui\ProgressBar::setValue($progressBar, 0);
+    $progressBar = ProgressBar::create();
+    ProgressBar::setValue($progressBar, 0);
     Control::hide($progressBar);
     Box::append($inputBox, $progressBar, false);
 
@@ -167,10 +172,83 @@ try {
         // Selected configuration callback
         $selectedConfigCallback = null;
 
+        // Function to refresh the main configuration combobox
+        $refreshMainConfigCombo = function() use ($configCombo, $configManager) {
+            // Get current text before clearing
+            $currentText = EditableCombobox::text($configCombo);
+            
+            // Get configurations from manager
+            $configurations = $configManager->listConfigurations();
+            
+            // Since we can't clear the combobox items directly, we'll add any new configurations
+            // that aren't already there. The EditableCombobox will handle duplicates.
+            foreach ($configurations as $config) {
+                EditableCombobox::append($configCombo, $config['name']);
+            }
+            
+            // Check if the current configuration still exists
+            $configExists = false;
+            foreach ($configurations as $config) {
+                if ($config['name'] === $currentText) {
+                    $configExists = true;
+                    break;
+                }
+            }
+            
+            // If the current configuration doesn't exist anymore, set to default text
+            if (!$configExists && !empty($currentText) && $currentText !== 'Select Configuration...') {
+                EditableCombobox::setText($configCombo, 'Select Configuration...');
+            }
+        };
+
+        // Function to create a confirmation dialog
+        $createConfirmDialog = function($parentWindow, $title, $message, $onConfirm, $onCancel = null) use (&$filteredConfigurations, $configManager) {
+            // Create a new window for the confirmation dialog
+            $dialogWindow = Window::create($title, 300, 150, 1); // 1 = modal window
+            Window::setMargined($dialogWindow, true);
+            
+            // Create main vertical box for layout
+            $dialogBox = Box::newVerticalBox();
+            Box::setPadded($dialogBox, true);
+            
+            // Add message label
+            $messageLabel = Label::create($message);
+            Box::append($dialogBox, $messageLabel, false);
+            
+            // Add buttons box
+            $buttonsBox = Box::newHorizontalBox();
+            Box::setPadded($buttonsBox, true);
+            
+            // Confirm button
+            $confirmButton = Button::create('Confirm');
+            Button::onClicked($confirmButton, function() use ($dialogWindow, $onConfirm) {
+                Control::hide($dialogWindow);
+                if (is_callable($onConfirm)) {
+                    $onConfirm();
+                }
+            });
+            Box::append($buttonsBox, $confirmButton, true);
+            
+            // Cancel button
+            $cancelButton = Button::create('Cancel');
+            Button::onClicked($cancelButton, function() use ($dialogWindow, $onCancel) {
+                Control::hide($dialogWindow);
+                if (is_callable($onCancel)) {
+                    $onCancel();
+                }
+            });
+            Box::append($buttonsBox, $cancelButton, true);
+            
+            Box::append($dialogBox, $buttonsBox, false);
+            
+            Window::setChild($dialogWindow, $dialogBox);
+            Control::show($dialogWindow);
+        };
+
         // Table model handler
-        $getTableModelHandler = function() use (&$filteredConfigurations, &$selectedConfigCallback, $configWindow, $configCombo, $configManager) {
+        $getTableModelHandler = function() use (&$filteredConfigurations, &$selectedConfigCallback, $configWindow, $configCombo, $configManager, $createConfirmDialog, $refreshMainConfigCombo, $formBox, &$table, &$createTable, &$configurations) {
             return Table::modelHandler(
-                6, // 6 columns: Name, URL, Concurrent Connections, Duration, Timeout, Select
+                7, // 7 columns: Name, URL, Concurrent Connections, Duration, Timeout, Select, Delete
                 TableValueType::String,
                 count($filteredConfigurations),
                 function ($handler, $row, $column) use (&$filteredConfigurations) {
@@ -200,45 +278,95 @@ try {
                             return Table::createValueStr((string)($configData['timeout'] ?? '0'));
                         case 5:
                             return Table::createValueStr('Select');
+                        case 6:
+                            return Table::createValueStr('Delete');
                         default:
                             return Table::createValueStr('');
                     }
                 },
-                function ($handler, $row, $column, $v) use (&$filteredConfigurations, $configWindow, $configCombo, $configManager) {
-                    // Handle button click in the last column
+                function ($handler, $row, $column, $v) use (&$filteredConfigurations, $configWindow, $configCombo, $configManager, $createConfirmDialog, $refreshMainConfigCombo, $formBox, &$table, &$createTable, &$configurations, &$tableModelRef) {
+                    // Get the configuration name from the table data
+                    $configKeys = array_keys($filteredConfigurations);
+                    if ($row >= count($configKeys)) {
+                        return;
+                    }
+                    
+                    $configKey = $configKeys[$row];
+                    $configData = $filteredConfigurations[$configKey];
+                    $name = $configData['name'];
+
+                    // Handle button click in the Select column (column 5)
                     if ($column == 5 && $row < count($filteredConfigurations)) {
-                        // Get the configuration name from the table data
-                        $configKeys = array_keys($filteredConfigurations);
-                        if ($row < count($configKeys)) {
-                            $configKey = $configKeys[$row];
-                            $configData = $filteredConfigurations[$configKey];
-                            $name = $configData['name'];
+                        // Load the configuration
+                        $config = $configManager->loadConfiguration($name);
+                        if ($config) {
+                            // Update the main window combobox
+                            EditableCombobox::setText($configCombo, $name);
 
-                            // Load the configuration
-                            $config = $configManager->loadConfiguration($name);
-                            if ($config) {
-                                // Update the main window combobox
-                                EditableCombobox::setText($configCombo, $name);
-
-                                // Hide the configuration window
-                                Control::hide($configWindow);
-                            }
+                            // Hide the configuration window
+                            Control::hide($configWindow);
                         }
+                    }
+                    // Handle button click in the Delete column (column 6)
+                    else if ($column == 6 && $row < count($filteredConfigurations)) {
+                        // Create a confirmation dialog
+                        $createConfirmDialog(
+                            $configWindow,
+                            'Confirm Delete',
+                            "Are you sure you want to delete the configuration '{$name}'? This action cannot be undone.",
+                            function() use (&$filteredConfigurations, &$configurations, $name, $configManager, $configWindow, $configCombo, $refreshMainConfigCombo, $formBox, &$table, &$createTable, &$tableModelRef) {
+                                // Find the row index of the configuration to delete
+                                $rowIndex = -1;
+                                foreach ($filteredConfigurations as $index => $config) {
+                                    if ($config['name'] === $name) {
+                                        $rowIndex = $index;
+                                        break;
+                                    }
+                                }
+                                
+                                // Delete the configuration
+                                if ($rowIndex >= 0 && $configManager->deleteConfiguration($name)) {
+                                    // Refresh configurations list
+                                    $configurations = $configManager->listConfigurations();
+                                    $filteredConfigurations = $configurations;
+                                    
+                                    // Also update the main window combobox
+                                    $refreshMainConfigCombo();
+                                    
+                                    // Update the table view by deleting the row
+                                    if ($tableModelRef !== null && $rowIndex >= 0) {
+                                        // Call modelRowDeleted to update the table view
+                                        Table::modelRowDeleted($tableModelRef, $rowIndex);
+                                    }
+                                }
+                            }
+                        );
                     }
                 }
             );
         };
 
-        // Create table model and table
-        $tableModel = Table::createModel($getTableModelHandler());
-        $table = Table::create($tableModel, -1);
-        Table::appendTextColumn($table, 'Name', 0, false);
-        Table::appendTextColumn($table, 'URL', 1, false);
-        Table::appendTextColumn($table, 'Concurrent Connections', 2, false);
-        Table::appendTextColumn($table, 'Duration', 3, false);
-        Table::appendTextColumn($table, 'Timeout', 4, false);
-        Table::appendButtonColumn($table, 'Action', 5, true);
-        Box::append($formBox, $table, true);
+        // Variable to hold the table model reference
+        $tableModelRef = null;
+
+        // Function to create and setup the table
+        $createTable = function() use ($getTableModelHandler, $formBox, &$tableModelRef) {
+            // Create table model and table
+            $tableModelRef = Table::createModel($getTableModelHandler());
+            $table = Table::create($tableModelRef, -1);
+            Table::appendTextColumn($table, 'Name', 0, false);
+            Table::appendTextColumn($table, 'URL', 1, false);
+            Table::appendTextColumn($table, 'Concurrent Connections', 2, false);
+            Table::appendTextColumn($table, 'Duration', 3, false);
+            Table::appendTextColumn($table, 'Timeout', 4, false);
+            Table::appendButtonColumn($table, 'Action', 5, true);
+            Table::appendButtonColumn($table, 'Delete', 6, true);
+            Box::append($formBox, $table, true);
+            return $table;
+        };
+
+        // Create the initial table
+        $table = $createTable();
 
         // Function to refresh the main configuration combobox
         $refreshMainConfigCombo = function() use ($configCombo, $configManager) {
@@ -256,7 +384,7 @@ try {
         };
 
         // Save button event handler
-        Button::onClicked($saveBtn, function () use (&$configurations, &$filteredConfigurations, $entries, $configWindow, $table, $getTableModelHandler, $tableModel, $configManager, $refreshMainConfigCombo, $formBox, $configCombo) {
+        Button::onClicked($saveBtn, function () use (&$configurations, &$filteredConfigurations, $entries, $configWindow, $table, $getTableModelHandler, $tableModelRef, $configManager, $refreshMainConfigCombo, $formBox, $configCombo) {
             $row = [];
             $allFilled = true;
             foreach (['Name', 'URL', 'Concurrent Connections', 'Duration', 'Timeout'] as $field) {
@@ -339,7 +467,7 @@ try {
     });
 
     Group::setChild($inputGroup, $inputBox);
-    Box::append($topHorizontalBox, $inputGroup, true);
+    Box::append($topHorizontalBox, $inputGroup, false); // Don't expand input group
 
     // Results group (right side)
     $resultsGroup = Group::create('结果');
@@ -357,7 +485,7 @@ try {
     Box::append($resultsBox, $resultGroupsBox, false);
 
     Group::setChild($resultsGroup, $resultsBox);
-    Box::append($topHorizontalBox, $resultsGroup, true);
+    Box::append($topHorizontalBox, $resultsGroup, true); // Expand results group
 
     Box::append($mainBox, $topHorizontalBox, false);
 
@@ -379,8 +507,13 @@ try {
 
     Box::append($mainBox, $bottomHorizontalBox, true);
 
+    // Create test executor and command builder instances
+    $testExecutor = new TestExecutor();
+    $commandBuilder = new OhaCommandBuilder();
+    $resultParser = new ResultParser();
+
     // Add event handlers for start and stop buttons
-    Button::onClicked($startButton, function() use ($startButton, $stopButton, $progressBar, $configCombo, $resultsText, $outputLabel) {
+    Button::onClicked($startButton, function() use ($startButton, $stopButton, $progressBar, $configCombo, $resultsText, $outputLabel, $testExecutor, $commandBuilder, $resultParser) {
         try {
             // Get selected configuration name
             $configName = trim(EditableCombobox::text($configCombo));
@@ -399,22 +532,147 @@ try {
                 return;
             }
 
+            // Validate configuration
+            $errors = $config->validate();
+            if (!empty($errors)) {
+                $guidance = UserGuidance::getErrorGuidance('validation_failed', implode(', ', $errors));
+                Label::setText($outputLabel, "Configuration Error: " . $guidance['message']);
+                return;
+            }
+
+            // Check if oha binary is available
+            if (!$commandBuilder->isOhaAvailable()) {
+                $guidance = UserGuidance::getErrorGuidance('oha_not_found');
+                Label::setText($outputLabel, "Error: " . $guidance['message']);
+                return;
+            }
+
+            // Build command
+            $command = $commandBuilder->buildCommand($config);
+            
             // Disable start button and enable stop button
             Control::disable($startButton);
             Control::enable($stopButton);
 
             // Show progress bar and set to indeterminate mode
             Control::show($progressBar);
-            \Kingbes\Libui\ProgressBar::setValue($progressBar, -1); // Indeterminate progress
+            ProgressBar::setValue($progressBar, -1); // Indeterminate progress
 
             // Update UI to show test is starting
             Label::setText($resultsText, "Test starting...\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
-            Label::setText($outputLabel, "Starting test with configuration: {$configName}\nURL: {$config->url}\nConnections: {$config->concurrentConnections}\nDuration: {$config->duration}s\nTimeout: {$config->timeout}s\n");
+            $currentOutput = Label::text($outputLabel);
+            Label::setText($outputLabel, $currentOutput . "Starting test with configuration: {$configName}\nURL: {$config->url}\nConnections: {$config->concurrentConnections}\nDuration: {$config->duration}s\nTimeout: {$config->timeout}s\nCommand: " . $command . "\n\n");
 
-            // In a real implementation, you would start the actual test here
-            // For this prototype, we'll simulate test completion after a delay
-            // Simulate test execution
-            Label::setText($outputLabel, "Test in progress...\nThis is a prototype. In a real implementation, this would show actual test output.\n");
+            // Start test execution with proper callbacks
+            $testExecutor->executeTest(
+                $command,
+                function($output) use ($outputLabel) {
+                    // Real-time output callback - use queueMain for thread-safe GUI updates
+                    App::queueMain(function() use ($outputLabel, $output) {
+                        $currentText = Label::text($outputLabel);
+                        // Ensure proper line endings
+                        $formattedOutput = str_replace("
+", "
+", $output);
+                        Label::setText($outputLabel, $currentText . $formattedOutput);
+                    });
+                },
+                function($error) use ($outputLabel, $startButton, $stopButton, $progressBar) {
+                    // Error callback - use queueMain for thread-safe GUI updates
+                    App::queueMain(function() use ($outputLabel, $startButton, $stopButton, $progressBar, $error) {
+                        $errorMessage = "Test Error: " . ($error['message'] ?? 'Unknown error');
+                        Label::setText($outputLabel, Label::text($outputLabel) . "
+" . $errorMessage . "
+");
+                        
+                        // Re-enable start button and disable stop button
+                        Control::enable($startButton);
+                        Control::disable($stopButton);
+                        Control::hide($progressBar);
+                        ProgressBar::setValue($progressBar, 0);
+                    });
+                },
+                function($exitCode, $error = null) use ($outputLabel, $startButton, $stopButton, $progressBar, $resultsText, $resultParser, $testExecutor) {
+                    // Completion callback - use queueMain for thread-safe GUI updates
+                    App::queueMain(function() use ($outputLabel, $startButton, $stopButton, $progressBar, $resultsText, $resultParser, $testExecutor, $exitCode, $error) {
+                        // Completion callback
+                        Control::hide($progressBar);
+                        ProgressBar::setValue($progressBar, 100);
+                        
+                        // Re-enable start button and disable stop button
+                        Control::enable($startButton);
+                        Control::disable($stopButton);
+                        
+                        if ($exitCode === 0) {
+                            // Test completed successfully
+                            $output = $testExecutor->getOutput();
+                            // Ensure proper line endings
+                            $formattedOutput = str_replace("
+", "
+", $output);
+                            Label::setText($outputLabel, Label::text($outputLabel) . "
+Test completed successfully.
+" . $formattedOutput);
+                            
+                            // Try to parse results
+                            try {
+                                $result = $resultParser->parseOutput($output);
+                                $results = "Test completed
+";
+                                $results .= "Requests/sec: " . ($result->requestsPerSecond ?? '--') . "
+";
+                                $results .= "Total requests: " . ($result->totalRequests ?? '--') . "
+";
+                                $results .= "Success rate: " . ($result->successRate ?? '--') . "%
+";
+                                $results .= "Performance: " . ($result->performance ?? '--') . "
+";
+                                Label::setText($resultsText, $results);
+                            } catch (Exception $e) {
+                                Label::setText($resultsText, "Test completed
+Failed to parse results.
+");
+                                // Even if parsing fails, show the raw output
+                                $formattedOutput = str_replace("
+", "
+", $output);
+                                Label::setText($outputLabel, Label::text($outputLabel) . "
+Raw output:
+" . $formattedOutput);
+                            }
+                        } else {
+                            // Test failed
+                            $output = $testExecutor->getOutput();
+                            // Ensure proper line endings
+                            $formattedOutput = str_replace("
+", "
+", $output);
+                            Label::setText($outputLabel, Label::text($outputLabel) . "
+Test failed with exit code: {$exitCode}
+" . $formattedOutput);
+                            Label::setText($resultsText, "Test failed
+Requests/sec: --
+Total requests: --
+Success rate: --
+Performance: --
+");
+                        }
+                    });
+                }
+            );
+            
+            // Start monitoring test progress by periodically checking if the test is still running
+            $monitorTestProgress = function() use (&$monitorTestProgress, $testExecutor, $progressBar) {
+                if ($testExecutor->isRunning()) {
+                    // Schedule next check after 100ms
+                    App::queueMain(function() use (&$monitorTestProgress) {
+                        $monitorTestProgress();
+                    });
+                }
+            };
+            
+            // Start the monitoring
+            $monitorTestProgress();
         } catch (Exception $e) {
             // Handle errors gracefully in FFI callbacks
             error_log("Error in start button callback: " . $e->getMessage());
@@ -425,23 +683,28 @@ try {
         }
     });
 
-    Button::onClicked($stopButton, function() use ($startButton, $stopButton, $progressBar, $resultsText, $outputLabel) {
+    Button::onClicked($stopButton, function() use ($startButton, $stopButton, $progressBar, $resultsText, $outputLabel, $testExecutor) {
         try {
+            // Stop the test if it's running
+            if ($testExecutor->isRunning()) {
+                $testExecutor->stopTest();
+            }
+            
             // Enable start button and disable stop button
             Control::enable($startButton);
             Control::disable($stopButton);
 
             // Hide progress bar
             Control::hide($progressBar);
-            \Kingbes\Libui\ProgressBar::setValue($progressBar, 0);
+            ProgressBar::setValue($progressBar, 0);
 
             // Update UI to show test was stopped
             Label::setText($resultsText, "Test stopped\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
-            Label::setText($outputLabel, "Test stopped by user.\n");
+            Label::setText($outputLabel, Label::text($outputLabel) . "\nTest stopped by user.\n");
         } catch (Exception $e) {
             // Handle errors gracefully in FFI callbacks
             error_log("Error in stop button callback: " . $e->getMessage());
-            Label::setText($outputLabel, "Error stopping test: " . $e->getMessage());
+            Label::setText($outputLabel, Label::text($outputLabel) . "\nError stopping test: " . $e->getMessage());
         }
     });
 

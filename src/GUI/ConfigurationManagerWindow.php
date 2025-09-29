@@ -346,8 +346,9 @@ class ConfigurationManagerWindow
         $this->hide();
 
         if ($this->onCloseCallback) {
-            // Call the callback without parameters when closing the window normally
-            ($this->onCloseCallback)();
+            // Instead of just calling the callback, we'll trigger a full refresh
+            // by passing a special parameter indicating a refresh is needed
+            ($this->onCloseCallback)('refresh', null);
         }
 
         return 0; // Prevent actual window destruction to allow reuse

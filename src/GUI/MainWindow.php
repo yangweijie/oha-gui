@@ -826,18 +826,24 @@ class MainWindow
             // Create configuration manager window
             $this->configManagerWindow = new ConfigurationManagerWindow();
             $this->configManagerWindow->setOnCloseCallback(function($selectedConfigName = null, $selectedConfig = null) {
-                // Refresh the configuration list in the main form when the manager is closed
-                if ($this->configForm) {
-                    $this->configForm->refreshConfigurationLists();
-                    
-                    // If a configuration was selected, load it into the form
-                    if ($selectedConfigName && $selectedConfig) {
-                        // Set the selected configuration name in the combobox
-                        $this->configForm->setSelectedConfiguration($selectedConfigName);
+                // Check if we need to refresh the entire application
+                if ($selectedConfigName === 'refresh') {
+                    // Instead of just updating the combobox, we'll reinitialize the app
+                    $this->reinitializeApplication();
+                } else {
+                    // Refresh the configuration list in the main form when the manager is closed
+                    if ($this->configForm) {
+                        $this->configForm->refreshConfigurationLists();
                         
-                        // Trigger the configuration loaded callback
-                        if ($this->configForm && method_exists($this->configForm, 'onConfigurationSelected')) {
-                            // This would require adding a public method to ConfigurationForm
+                        // If a configuration was selected, load it into the form
+                        if ($selectedConfigName && $selectedConfig) {
+                            // Set the selected configuration name in the combobox
+                            $this->configForm->setSelectedConfiguration($selectedConfigName);
+                            
+                            // Trigger the configuration loaded callback
+                            if ($this->configForm && method_exists($this->configForm, 'onConfigurationSelected')) {
+                                // This would require adding a public method to ConfigurationForm
+                            }
                         }
                     }
                 }
@@ -1338,6 +1344,40 @@ class MainWindow
     {
         if ($this->configManagerWindow) {
             $this->configManagerWindow->show();
+        }
+    }
+
+    /**
+     * Reinitialize the application to refresh all components
+     * This method clears all components and reinitializes the application
+     * 
+     * @return void
+     */
+    private function reinitializeApplication(): void
+    {
+        try {
+            // Perform resource cleanup
+            $this->performResourceCleanup();
+            
+            // Recreate main components
+            $this->testExecutor = new TestExecutor();
+            $this->commandBuilder = new OhaCommandBuilder();
+            $this->resultParser = new ResultParser();
+            $this->configManager = new ConfigurationManager();
+            
+            // Recreate UI components
+            $this->createLayout();
+            $this->setupEventHandlers();
+            $this->connectComponents();
+            
+            // Setup configuration manager again
+            $this->setupConfigurationManager();
+            
+            // Refresh window title
+            Window::setTitle($this->window, self::WINDOW_TITLE);
+            
+        } catch (Exception $e) {
+            error_log("Error reinitializing application: " . $e->getMessage());
         }
     }
 
