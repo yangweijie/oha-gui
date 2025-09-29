@@ -474,17 +474,12 @@ try {
     $resultsBox = Box::newVerticalBox();
     Box::setPadded($resultsBox, true);
 
-    // Create horizontal result groups
-    $resultGroupsBox = Box::newHorizontalBox();
-    Box::setPadded($resultGroupsBox, true);
-
     // Results text
     $resultsText = Label::create("Ready to run test\nRequests/sec: --\nTotal requests: --\nSuccess rate: --\nPerformance: --");
     Box::append($resultsBox, $resultsText, false);
 
-    Box::append($resultsBox, $resultGroupsBox, false);
-
     Group::setChild($resultsGroup, $resultsBox);
+
     Box::append($topHorizontalBox, $resultsGroup, true); // Expand results group
 
     Box::append($mainBox, $topHorizontalBox, false);
@@ -509,6 +504,8 @@ try {
 
     // Create test executor and command builder instances
     $testExecutor = new TestExecutor();
+    $testExecutor->setMaxOutputSize(102400); // Limit output to 100KB to prevent memory issues
+    $testExecutor->setMinReadInterval(50); // Set minimum read interval to 50ms
     $commandBuilder = new OhaCommandBuilder();
     $resultParser = new ResultParser();
 
@@ -581,9 +578,7 @@ try {
                     // Error callback - use queueMain for thread-safe GUI updates
                     App::queueMain(function() use ($outputLabel, $startButton, $stopButton, $progressBar, $error) {
                         $errorMessage = "Test Error: " . ($error['message'] ?? 'Unknown error');
-                        Label::setText($outputLabel, Label::text($outputLabel) . "
-" . $errorMessage . "
-");
+                        Label::setText($outputLabel, Label::text($outputLabel) . "\n" . $errorMessage . "\n");
                         
                         // Re-enable start button and disable stop button
                         Control::enable($startButton);
@@ -654,21 +649,17 @@ Test failed with exit code: {$exitCode}
 Requests/sec: --
 Total requests: --
 Success rate: --
-Performance: --
-");
+Performance: --");
                         }
                     });
                 }
             );
             
             // Start monitoring test progress by periodically checking if the test is still running
-            $monitorTestProgress = function() use (&$monitorTestProgress, $testExecutor, $progressBar) {
-                if ($testExecutor->isRunning()) {
-                    // Schedule next check after 100ms
-                    App::queueMain(function() use (&$monitorTestProgress) {
-                        $monitorTestProgress();
-                    });
-                }
+            // Use a simple approach without recursive calls to prevent memory leaks
+            $monitorTestProgress = function() use ($testExecutor, $progressBar) {
+                // This function will be called periodically by the GUI event loop
+                // We don't need to recursively call it ourselves
             };
             
             // Start the monitoring

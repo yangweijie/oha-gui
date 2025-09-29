@@ -30,6 +30,9 @@ class TestExecutor
     private ProcessErrorHandler $errorHandler;
     private int $timeoutSeconds = 0;
     private int $startTime = 0;
+    private int $maxOutputSize = 102400; // 100KB limit for output buffer
+    private int $lastReadTime = 0;
+    private int $minReadInterval = 50; // Minimum interval between reads in milliseconds
 
     /**
      * Execute oha test command asynchronously with comprehensive error handling
@@ -258,6 +261,28 @@ class TestExecutor
     }
 
     /**
+     * Set the maximum output size to prevent memory exhaustion
+     * 
+     * @param int $size Maximum output size in bytes
+     * @return void
+     */
+    public function setMaxOutputSize(int $size): void
+    {
+        $this->maxOutputSize = $size;
+    }
+
+    /**
+     * Set the minimum interval between reads to prevent overwhelming the GUI
+     * 
+     * @param int $interval Minimum interval in milliseconds
+     * @return void
+     */
+    public function setMinReadInterval(int $interval): void
+    {
+        $this->minReadInterval = $interval;
+    }
+
+    /**
      * Get the exit code of the completed test
      * 
      * @return int The exit code (0 for success)
@@ -272,23 +297,64 @@ class TestExecutor
      */
     private function readOutput(): void
     {
+        // Limit read frequency to prevent overwhelming the GUI
+        $currentTime = intval(microtime(true) * 1000); // Current time in milliseconds
+        if (($currentTime - $this->lastReadTime) < $this->minReadInterval) {
+            return; // Skip reading if not enough time has passed
+        }
+        $this->lastReadTime = $currentTime;
+
         if (!isset($this->pipes[1]) || !isset($this->pipes[2])) {
             return;
         }
 
-        // Read from stdout
-        $stdout = stream_get_contents($this->pipes[1]);
+        // Read from stdout (limit to 8192 bytes at a time to prevent memory issues)
+        $stdout = stream_get_contents($this->pipes[1], 8192);
         if ($stdout !== false && $stdout !== '') {
-            $this->output .= $stdout;
+            // Limit total output to prevent memory exhaustion
+            if (strlen($this->output) < $this->maxOutputSize) {
+                // If we have space, add as much as we can
+                $availableSpace = $this->maxOutputSize - strlen($this->output);
+                if (strlen($stdout) <= $availableSpace) {
+                    // Plenty of space, add all
+                    $this->output .= $stdout;
+                } else {
+                    // Only add what we can fit
+                    $this->output .= substr($stdout, 0, $availableSpace);
+                    // Add indicator that output was truncated
+                    if (strlen($this->output) < $this->maxOutputSize) {
+                        $this->output .= "\n[Output truncated due to size limits]\n";
+                    }
+                }
+            }
+            // If we're already at limit, don't add anything more
+            
             if ($this->outputCallback) {
                 call_user_func($this->outputCallback, $stdout);
             }
         }
 
-        // Read from stderr
-        $stderr = stream_get_contents($this->pipes[2]);
+        // Read from stderr (limit to 8192 bytes at a time to prevent memory issues)
+        $stderr = stream_get_contents($this->pipes[2], 8192);
         if ($stderr !== false && $stderr !== '') {
-            $this->output .= $stderr;
+            // Limit total output to prevent memory exhaustion
+            if (strlen($this->output) < $this->maxOutputSize) {
+                // If we have space, add as much as we can
+                $availableSpace = $this->maxOutputSize - strlen($this->output);
+                if (strlen($stderr) <= $availableSpace) {
+                    // Plenty of space, add all
+                    $this->output .= $stderr;
+                } else {
+                    // Only add what we can fit
+                    $this->output .= substr($stderr, 0, $availableSpace);
+                    // Add indicator that output was truncated
+                    if (strlen($this->output) < $this->maxOutputSize) {
+                        $this->output .= "\n[Output truncated due to size limits]\n";
+                    }
+                }
+            }
+            // If we're already at limit, don't add anything more
+            
             if ($this->errorCallback) {
                 call_user_func($this->errorCallback, $stderr);
             } elseif ($this->outputCallback) {
@@ -303,6 +369,9 @@ class TestExecutor
      */
     private function readRemainingOutput(): void
     {
+        // Reset read time limit for final read
+        $this->lastReadTime = 0;
+
         if (!isset($this->pipes[1]) || !isset($this->pipes[2])) {
             return;
         }
@@ -311,19 +380,53 @@ class TestExecutor
         stream_set_blocking($this->pipes[1], true);
         stream_set_blocking($this->pipes[2], true);
 
-        // Read remaining stdout
-        $stdout = stream_get_contents($this->pipes[1]);
+        // Read remaining stdout (limit to 8192 bytes at a time to prevent memory issues)
+        $stdout = stream_get_contents($this->pipes[1], 8192);
         if ($stdout !== false && $stdout !== '') {
-            $this->output .= $stdout;
+            // Limit total output to prevent memory exhaustion
+            if (strlen($this->output) < $this->maxOutputSize) {
+                // If we have space, add as much as we can
+                $availableSpace = $this->maxOutputSize - strlen($this->output);
+                if (strlen($stdout) <= $availableSpace) {
+                    // Plenty of space, add all
+                    $this->output .= $stdout;
+                } else {
+                    // Only add what we can fit
+                    $this->output .= substr($stdout, 0, $availableSpace);
+                    // Add indicator that output was truncated
+                    if (strlen($this->output) < $this->maxOutputSize) {
+                        $this->output .= "\n[Output truncated due to size limits]\n";
+                    }
+                }
+            }
+            // If we're already at limit, don't add anything more
+            
             if ($this->outputCallback) {
                 call_user_func($this->outputCallback, $stdout);
             }
         }
 
-        // Read remaining stderr
-        $stderr = stream_get_contents($this->pipes[2]);
+        // Read remaining stderr (limit to 8192 bytes at a time to prevent memory issues)
+        $stderr = stream_get_contents($this->pipes[2], 8192);
         if ($stderr !== false && $stderr !== '') {
-            $this->output .= $stderr;
+            // Limit total output to prevent memory exhaustion
+            if (strlen($this->output) < $this->maxOutputSize) {
+                // If we have space, add as much as we can
+                $availableSpace = $this->maxOutputSize - strlen($this->output);
+                if (strlen($stderr) <= $availableSpace) {
+                    // Plenty of space, add all
+                    $this->output .= $stderr;
+                } else {
+                    // Only add what we can fit
+                    $this->output .= substr($stderr, 0, $availableSpace);
+                    // Add indicator that output was truncated
+                    if (strlen($this->output) < $this->maxOutputSize) {
+                        $this->output .= "\n[Output truncated due to size limits]\n";
+                    }
+                }
+            }
+            // If we're already at limit, don't add anything more
+            
             if ($this->errorCallback) {
                 call_user_func($this->errorCallback, $stderr);
             } elseif ($this->outputCallback) {
