@@ -132,8 +132,15 @@ class TestExecutor
             return false;
         }
         
-        // Terminate the process with SIGKILL to ensure it stops on macOS
-        $terminated = proc_terminate($this->process, 9); // SIGKILL
+        // Terminate the process
+        // Use different approach for Windows vs Unix-like systems
+        if (PHP_OS_FAMILY === 'Windows') {
+            // On Windows, we need to use a different approach
+            $terminated = proc_terminate($this->process);
+        } else {
+            // On Unix-like systems, use SIGKILL to ensure it stops
+            $terminated = proc_terminate($this->process, 9); // SIGKILL
+        }
         
         if ($terminated) {
             $this->cleanup();
@@ -146,6 +153,7 @@ class TestExecutor
         
         return $terminated;
     }
+
     
     /**
      * Check if a test is currently running
@@ -371,8 +379,15 @@ class TestExecutor
         }
         
         // Terminate the process
+        // Use different approach for Windows vs Unix-like systems
         if (is_resource($this->process)) {
-            proc_terminate($this->process, 9); // SIGKILL
+            if (PHP_OS_FAMILY === 'Windows') {
+                // On Windows, we need to use a different approach
+                proc_terminate($this->process);
+            } else {
+                // On Unix-like systems, use SIGKILL to ensure it stops
+                proc_terminate($this->process, 9); // SIGKILL
+            }
         }
         
         // Create timeout result
