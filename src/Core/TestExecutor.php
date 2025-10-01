@@ -19,6 +19,7 @@ use Psl\Filesystem;
 class TestExecutor
 {
     private $process = null;
+    private array $pipes = [];
     private bool $isRunning = false;
     private string $outputBuffer = '';
     private $outputCallback = null;
