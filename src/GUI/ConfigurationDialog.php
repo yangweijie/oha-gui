@@ -488,7 +488,7 @@ class ConfigurationDialog extends BaseGUIComponent
     private function parseHeaders(string $headersText): array
     {
         $headers = [];
-        $lines = explode("\n", $headersText);
+        $lines = explode(PHP_EOL, $headersText);
         
         foreach ($lines as $line) {
             $line = trim($line);
@@ -517,7 +517,7 @@ class ConfigurationDialog extends BaseGUIComponent
         foreach ($headers as $name => $value) {
             $lines[] = $name . ': ' . $value;
         }
-        return implode("\n", $lines);
+        return implode(PHP_EOL, $lines);
     }
 
     /**

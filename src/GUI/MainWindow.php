@@ -618,7 +618,7 @@ class MainWindow extends BaseGUIComponent
             
             // Clear output
             if ($this->outputEntry !== null) {
-                $this->currentOutput = "Starting test...\n\nTest is running. Please wait for completion.\nNote: oha tool outputs results only after completion.\n";
+                $this->currentOutput = "Starting test..." . PHP_EOL . PHP_EOL . "Test is running. Please wait for completion." . PHP_EOL . "Note: oha tool outputs results only after completion." . PHP_EOL;
                 MultilineEntry::setText($this->outputEntry, $this->currentOutput);
             }
             
@@ -742,7 +742,7 @@ class MainWindow extends BaseGUIComponent
                 Label::setText($this->statusLabel, "Error: " . $e->getMessage());
             }
             if ($this->outputEntry !== null) {
-                $this->currentOutput = "Error: " . $e->getMessage() . "\n";
+                $this->currentOutput = "Error: " . $e->getMessage() . PHP_EOL;
                 MultilineEntry::setText($this->outputEntry, $this->currentOutput);
             }
         }
@@ -762,7 +762,7 @@ class MainWindow extends BaseGUIComponent
                 
                 // Append stop message to output
                 if ($this->outputEntry !== null) {
-                    $this->currentOutput .= "\n--- Test stopped by user ---\n";
+                    $this->currentOutput .= PHP_EOL . "--- Test stopped by user ---" . PHP_EOL;
                     MultilineEntry::setText($this->outputEntry, $this->currentOutput);
                 }
                 
@@ -785,7 +785,7 @@ class MainWindow extends BaseGUIComponent
                 Label::setText($this->statusLabel, "Failed to stop test: " . $e->getMessage());
             }
             if ($this->outputEntry !== null) {
-                $this->currentOutput .= "Failed to stop test: " . $e->getMessage() . "\n";
+                $this->currentOutput .= "Failed to stop test: " . $e->getMessage() . PHP_EOL;
                 MultilineEntry::setText($this->outputEntry, $this->currentOutput);
             }
         }

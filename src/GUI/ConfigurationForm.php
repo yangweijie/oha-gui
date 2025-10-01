@@ -184,7 +184,7 @@ class ConfigurationForm extends BaseGUIComponent
         Box::append($parent, $headersLabel, false);
 
         $this->headersEntry = MultilineEntry::create();
-        MultilineEntry::setText($this->headersEntry, "Content-Type: application/json\nUser-Agent: OHA-GUI-Tool");
+        MultilineEntry::setText($this->headersEntry, "Content-Type: application/json" . PHP_EOL . "User-Agent: OHA-GUI-Tool");
         Box::append($parent, $this->headersEntry, false);
     }
 
@@ -612,7 +612,7 @@ class ConfigurationForm extends BaseGUIComponent
     private function parseHeaders(string $headersText): array
     {
         $headers = [];
-        $lines = explode("\n", $headersText);
+        $lines = explode(PHP_EOL, $headersText);
         
         foreach ($lines as $line) {
             $line = trim($line);
@@ -641,7 +641,7 @@ class ConfigurationForm extends BaseGUIComponent
         foreach ($headers as $name => $value) {
             $lines[] = $name . ': ' . $value;
         }
-        return implode("\n", $lines);
+        return implode(PHP_EOL, $lines);
     }
 
     /**

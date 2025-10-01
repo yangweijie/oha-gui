@@ -308,7 +308,7 @@ class ResultsDisplay extends BaseGUIComponent
     {
         $this->updateStatus("Test running...");
         $this->clearOutput();
-        $this->setOutput("Starting test...\n\nTest is running. Please wait for completion.\nNote: oha tool outputs results only after completion.\n");
+        $this->setOutput("Starting test..." . PHP_EOL . PHP_EOL . "Test is running. Please wait for completion." . PHP_EOL . "Note: oha tool outputs results only after completion." . PHP_EOL);
     }
 
     /**
@@ -317,7 +317,7 @@ class ResultsDisplay extends BaseGUIComponent
     public function showTestStopped(): void
     {
         $this->updateStatus("Test stopped");
-        $this->appendOutput("\n--- Test stopped by user ---\n");
+        $this->appendOutput(PHP_EOL . "--- Test stopped by user ---" . PHP_EOL);
     }
 
     /**
@@ -328,7 +328,7 @@ class ResultsDisplay extends BaseGUIComponent
     public function showError(string $error): void
     {
         $this->updateStatus("Error: " . $error);
-        $this->setOutput("Error: " . $error . "\n");
+        $this->setOutput("Error: " . $error . PHP_EOL);
     }
 
     /**
