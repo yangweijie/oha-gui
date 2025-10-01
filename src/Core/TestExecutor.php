@@ -94,14 +94,23 @@ class TestExecutor
         $this->isRunning = true;
         
         // Set pipes to non-blocking mode for real-time output
-        if (!stream_set_blocking($this->pipes[1], false)) {
-            $this->cleanup();
-            throw new \RuntimeException('Failed to set stdout to non-blocking mode');
+        // On Windows, stream_set_blocking may not work as expected, so we'll handle it gracefully
+        if (!@stream_set_blocking($this->pipes[1], false)) {
+            // On Windows, we'll use a different approach for non-blocking reads
+            // This is a known limitation, but we can still proceed
+            if (PHP_OS_FAMILY !== 'Windows') {
+                $this->cleanup();
+                throw new \RuntimeException('Failed to set stdout to non-blocking mode');
+            }
         }
         
-        if (!stream_set_blocking($this->pipes[2], false)) {
-            $this->cleanup();
-            throw new \RuntimeException('Failed to set stderr to non-blocking mode');
+        if (!@stream_set_blocking($this->pipes[2], false)) {
+            // On Windows, we'll use a different approach for non-blocking reads
+            // This is a known limitation, but we can still proceed
+            if (PHP_OS_FAMILY !== 'Windows') {
+                $this->cleanup();
+                throw new \RuntimeException('Failed to set stderr to non-blocking mode');
+            }
         }
         
         // Close stdin as we don't need to send input to oha
@@ -193,12 +202,26 @@ class TestExecutor
         
         // Read from stdout with error handling
         try {
-            $output = stream_get_contents($this->pipes[1]);
-            if ($output !== false && $output !== '') {
-                $this->outputBuffer .= $output;
-                
-                if ($this->outputCallback) {
-                    call_user_func($this->outputCallback, $output);
+            // On Windows, we need to handle streams differently
+            if (PHP_OS_FAMILY === 'Windows') {
+                // For Windows, we'll try to read in non-blocking mode without setting it explicitly
+                $output = fread($this->pipes[1], 8192);
+                if ($output !== false && $output !== '') {
+                    $this->outputBuffer .= $output;
+                    
+                    if ($this->outputCallback) {
+                        call_user_func($this->outputCallback, $output);
+                    }
+                }
+            } else {
+                // Unix-like systems
+                $output = stream_get_contents($this->pipes[1]);
+                if ($output !== false && $output !== '') {
+                    $this->outputBuffer .= $output;
+                    
+                    if ($this->outputCallback) {
+                        call_user_func($this->outputCallback, $output);
+                    }
                 }
             }
         } catch (\Exception $e) {
@@ -209,12 +232,26 @@ class TestExecutor
         
         // Read from stderr with error handling
         try {
-            $errorOutput = stream_get_contents($this->pipes[2]);
-            if ($errorOutput !== false && $errorOutput !== '') {
-                $this->outputBuffer .= $errorOutput;
-                
-                if ($this->outputCallback) {
-                    call_user_func($this->outputCallback, $errorOutput);
+            // On Windows, we need to handle streams differently
+            if (PHP_OS_FAMILY === 'Windows') {
+                // For Windows, we'll try to read in non-blocking mode without setting it explicitly
+                $errorOutput = fread($this->pipes[2], 8192);
+                if ($errorOutput !== false && $errorOutput !== '') {
+                    $this->outputBuffer .= $errorOutput;
+                    
+                    if ($this->outputCallback) {
+                        call_user_func($this->outputCallback, $errorOutput);
+                    }
+                }
+            } else {
+                // Unix-like systems
+                $errorOutput = stream_get_contents($this->pipes[2]);
+                if ($errorOutput !== false && $errorOutput !== '') {
+                    $this->outputBuffer .= $errorOutput;
+                    
+                    if ($this->outputCallback) {
+                        call_user_func($this->outputCallback, $errorOutput);
+                    }
                 }
             }
         } catch (\Exception $e) {
@@ -241,12 +278,26 @@ class TestExecutor
         
         // Read any remaining output with error handling
         try {
-            $remainingOutput = stream_get_contents($this->pipes[1]);
-            if ($remainingOutput !== false && $remainingOutput !== '') {
-                $this->outputBuffer .= $remainingOutput;
-                
-                if ($this->outputCallback) {
-                    call_user_func($this->outputCallback, $remainingOutput);
+            // On Windows, we need to handle streams differently
+            if (PHP_OS_FAMILY === 'Windows') {
+                // For Windows, we'll try to read in non-blocking mode without setting it explicitly
+                $remainingOutput = fread($this->pipes[1], 8192);
+                if ($remainingOutput !== false && $remainingOutput !== '') {
+                    $this->outputBuffer .= $remainingOutput;
+                    
+                    if ($this->outputCallback) {
+                        call_user_func($this->outputCallback, $remainingOutput);
+                    }
+                }
+            } else {
+                // Unix-like systems
+                $remainingOutput = stream_get_contents($this->pipes[1]);
+                if ($remainingOutput !== false && $remainingOutput !== '') {
+                    $this->outputBuffer .= $remainingOutput;
+                    
+                    if ($this->outputCallback) {
+                        call_user_func($this->outputCallback, $remainingOutput);
+                    }
                 }
             }
         } catch (\Exception $e) {
@@ -256,12 +307,26 @@ class TestExecutor
         }
         
         try {
-            $remainingError = stream_get_contents($this->pipes[2]);
-            if ($remainingError !== false && $remainingError !== '') {
-                $this->outputBuffer .= $remainingError;
-                
-                if ($this->outputCallback) {
-                    call_user_func($this->outputCallback, $remainingError);
+            // On Windows, we need to handle streams differently
+            if (PHP_OS_FAMILY === 'Windows') {
+                // For Windows, we'll try to read in non-blocking mode without setting it explicitly
+                $remainingError = fread($this->pipes[2], 8192);
+                if ($remainingError !== false && $remainingError !== '') {
+                    $this->outputBuffer .= $remainingError;
+                    
+                    if ($this->outputCallback) {
+                        call_user_func($this->outputCallback, $remainingError);
+                    }
+                }
+            } else {
+                // Unix-like systems
+                $remainingError = stream_get_contents($this->pipes[2]);
+                if ($remainingError !== false && $remainingError !== '') {
+                    $this->outputBuffer .= $remainingError;
+                    
+                    if ($this->outputCallback) {
+                        call_user_func($this->outputCallback, $remainingError);
+                    }
                 }
             }
         } catch (\Exception $e) {
