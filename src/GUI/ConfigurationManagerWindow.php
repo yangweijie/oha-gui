@@ -153,6 +153,9 @@ class ConfigurationManagerWindow extends BaseGUIComponent
         
         // Bring to front
         Window::setTitle($this->window, "配置管理");
+        
+        // Center window
+        $this->centerWindow();
     }
 
     /**
@@ -405,26 +408,30 @@ class ConfigurationManagerWindow extends BaseGUIComponent
     }
 
     /**
+     * Center the window on the screen
+     */
+    private function centerWindow(): void
+    {
+        if ($this->window === null) {
+            return;
+        }
+        
+        // Use WindowHelper to center the window
+        try {
+            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
+        } catch (\Throwable $e) {
+            // Ignore errors in window centering
+            error_log("Failed to center window: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Cleanup resources
      */
     public function cleanup(): void
     {
         try {
-            // Cleanup child components
-            if ($this->configTable !== null) {
-                $this->configTable->cleanup();
-                $this->configTable = null;
-            }
-
-            if ($this->configDialog !== null) {
-                $this->configDialog->cleanup();
-                $this->configDialog = null;
-            }
-
-            // Clear other references
-            $this->vbox = null;
-            $this->addButton = null;
-            $this->configManager = null;
+            // Clear callbacks
             $this->onConfigurationSelectedCallback = null;
             $this->onConfigurationChangedCallback = null;
 

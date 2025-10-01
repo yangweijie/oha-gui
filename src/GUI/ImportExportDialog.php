@@ -215,6 +215,9 @@ class ImportExportDialog extends BaseGUIComponent
             return;
         }
         Control::show($this->window);
+        
+        // Center window
+        $this->centerWindow();
     }
 
     /**
@@ -426,20 +429,29 @@ class ImportExportDialog extends BaseGUIComponent
     }
 
     /**
+     * Center the window on the screen
+     */
+    private function centerWindow(): void
+    {
+        if ($this->window === null) {
+            return;
+        }
+        
+        // Use WindowHelper to center the window
+        try {
+            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
+        } catch (\Throwable $e) {
+            // Ignore errors in window centering
+            error_log("Failed to center window: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Cleanup resources
      */
     public function cleanup(): void
     {
         try {
-            // Clear references to libui controls
-            $this->vbox = null;
-            $this->filePathEntry = null;
-            $this->browseButton = null;
-            $this->importButton = null;
-            $this->exportButton = null;
-            $this->cancelButton = null;
-            $this->statusLabel = null;
-            
             // Clear callbacks
             $this->onImportCallback = null;
             $this->onExportCallback = null;

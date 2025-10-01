@@ -148,6 +148,9 @@ class ConfirmationDialog extends BaseGUIComponent
             return;
         }
         Control::show($this->window);
+        
+        // Center window
+        $this->centerWindow();
     }
 
     /**
@@ -237,17 +240,29 @@ class ConfirmationDialog extends BaseGUIComponent
     }
 
     /**
+     * Center the window on the screen
+     */
+    private function centerWindow(): void
+    {
+        if ($this->window === null) {
+            return;
+        }
+        
+        // Use WindowHelper to center the window
+        try {
+            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
+        } catch (\Throwable $e) {
+            // Ignore errors in window centering
+            error_log("Failed to center window: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Cleanup resources
      */
     public function cleanup(): void
     {
         try {
-            // Clear references to libui controls
-            $this->vbox = null;
-            $this->messageLabel = null;
-            $this->yesButton = null;
-            $this->noButton = null;
-            
             // Clear callbacks
             $this->onConfirmCallback = null;
             $this->onCancelCallback = null;

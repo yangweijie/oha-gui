@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OhaGui\App;
 
+use FFI;
 use Kingbes\Libui\App;
 use Kingbes\Libui\Base;
 use OhaGui\GUI\MainWindow;
@@ -39,12 +40,12 @@ class OhaGuiApp extends Base
         
         // Initialize libui
         $options = $ffi->new('uiInitOptions');
-        $options->Size = \FFI::sizeof($options);
+        $options->Size = FFI::sizeof($options);
         
-        $error = $ffi->uiInit(\FFI::addr($options));
+        $error = $ffi->uiInit(FFI::addr($options));
         
         if ($error !== null) {
-            $errorMessage = \FFI::string($error);
+            $errorMessage = FFI::string($error);
             $ffi->uiFreeInitError($error);
             throw new RuntimeException("Failed to initialize libui: " . $errorMessage);
         }

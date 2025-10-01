@@ -172,6 +172,9 @@ class NameInputDialog extends BaseGUIComponent
         }
 
         Control::show($this->window);
+        
+        // Center window
+        $this->centerWindow();
     }
 
     /**
@@ -396,19 +399,29 @@ class NameInputDialog extends BaseGUIComponent
     }
 
     /**
+     * Center the window on the screen
+     */
+    private function centerWindow(): void
+    {
+        if ($this->window === null) {
+            return;
+        }
+        
+        // Use WindowHelper to center the window
+        try {
+            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
+        } catch (\Throwable $e) {
+            // Ignore errors in window centering
+            error_log("Failed to center window: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Cleanup resources
      */
     public function cleanup(): void
     {
         try {
-            // Clear references to libui controls
-            $this->vbox = null;
-            $this->messageLabel = null;
-            $this->nameEntry = null;
-            $this->okButton = null;
-            $this->cancelButton = null;
-            $this->errorLabel = null;
-            
             // Clear callbacks
             $this->onOkCallback = null;
             $this->onCancelCallback = null;

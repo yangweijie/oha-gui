@@ -2,8 +2,10 @@
     "name": "yangweijie/oha-gui",
     "type": "project",
     "require": {
+        "ext-ffi": "*",
         "azjezz/psl": "^4.0",
-        "kingbes/libui": "*"
+        "kingbes/libui": "^0.1.3",
+        "ndtan/php-curl-framework": "dev-main"
     },
     "autoload": {
         "psr-4": {

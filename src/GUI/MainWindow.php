@@ -422,6 +422,9 @@ class MainWindow extends BaseGUIComponent
     public function show(): void
     {
         Control::show($this->window);
+        
+        // Center window
+        $this->centerWindow();
     }
 
     /**
@@ -842,6 +845,24 @@ class MainWindow extends BaseGUIComponent
     }
 
     /**
+     * Center the window on the screen
+     */
+    private function centerWindow(): void
+    {
+        if ($this->window === null) {
+            return;
+        }
+        
+        // Use WindowHelper to center the window
+        try {
+            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
+        } catch (\Throwable $e) {
+            // Ignore errors in window centering
+            error_log("Failed to center window: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Cleanup resources
      */
     public function cleanup(): void
@@ -901,6 +922,7 @@ class MainWindow extends BaseGUIComponent
 
             // Clear layout references
             $this->vbox = null;
+            $this->configGroup = null;
 
             // Cleanup core components
             $this->testExecutor = null;
