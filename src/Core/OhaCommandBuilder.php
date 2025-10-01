@@ -88,79 +88,20 @@ class OhaCommandBuilder
     {
         $binaryName = CrossPlatform::isWindows() ? 'oha.exe' : 'oha';
         
-        // First try local bin directory
+        // Only check local bin directory
         $localBinPath = getcwd() . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . $binaryName;
         if (file_exists($localBinPath) && is_executable($localBinPath)) {
             return $localBinPath;
         }
         
-        // Then try to find oha in PATH
-        $pathCommand = CrossPlatform::isWindows() ? 'where' : 'which';
-        $output = [];
-        $returnCode = 0;
-        
-        exec($pathCommand . ' ' . escapeshellarg($binaryName) . ' 2>/dev/null', $output, $returnCode);
-        
-        if ($returnCode === 0 && !empty($output)) {
-            $binaryPath = trim($output[0]);
-            
-            // Verify the binary is actually executable
-            if (is_executable($binaryPath)) {
-                return $binaryPath;
-            }
-        }
-        
-        // If not found in PATH, try common installation locations
-        $commonPaths = $this->getCommonOhaPaths();
-        
-        foreach ($commonPaths as $path) {
-            $fullPath = $path . DIRECTORY_SEPARATOR . $binaryName;
-            if (file_exists($fullPath) && is_executable($fullPath)) {
-                return $fullPath;
-            }
-        }
-        
-        // If still not found, throw an exception with helpful information
+        // If not found in local bin directory, throw an exception
         throw new RuntimeException(
-            'oha binary not found. Please install oha and ensure it is in your system PATH. ' .
-            'Visit https://github.com/hatoo/oha for installation instructions. ' .
-            'Searched locations: local bin directory, PATH, and [' . implode(', ', $commonPaths) . ']'
+            'oha binary not found in bin directory. Please place oha binary in the bin directory. ' .
+            'Visit https://github.com/hatoo/oha for installation instructions.'
         );
     }
     
-    /**
-     * Get common installation paths for oha binary based on platform
-     * 
-     * @return array Array of common paths where oha might be installed
-     */
-    private function getCommonOhaPaths(): array
-    {
-        if (CrossPlatform::isWindows()) {
-            return [
-                'C:\\Program Files\\oha',
-                'C:\\Program Files (x86)\\oha',
-                'C:\\tools\\oha',
-                getenv('USERPROFILE') . '\\AppData\\Local\\oha',
-                getcwd() . '\\bin'
-            ];
-        } elseif (CrossPlatform::isMacOS()) {
-            return [
-                '/usr/local/bin',
-                '/opt/homebrew/bin',
-                '/usr/bin',
-                getenv('HOME') . '/.local/bin',
-                getcwd() . '/bin'
-            ];
-        } else { // Linux
-            return [
-                '/usr/local/bin',
-                '/usr/bin',
-                '/bin',
-                getenv('HOME') . '/.local/bin',
-                getcwd() . '/bin'
-            ];
-        }
-    }
+    
     
     /**
      * Escape command line argument to prevent injection and handle special characters
