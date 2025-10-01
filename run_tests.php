@@ -104,6 +104,12 @@ function assertGreaterThan($expected, $actual, $message = 'Value is not greater 
     }
 }
 
+function assertIsBool($value, $message = 'Value is not a boolean') {
+    if (!is_bool($value)) {
+        throw new Exception($message);
+    }
+}
+
 // Simple test runner function
 function runTests($testClass) {
     echo "Running tests for {$testClass}...\n";
@@ -154,9 +160,11 @@ function runTests($testClass) {
 require_once 'tests/Core/ConfigurationValidatorTest.php';
 require_once 'tests/Core/ConfigurationManagerTest.php';
 require_once 'tests/Core/OhaCommandBuilderTest.php';
+require_once 'tests/Core/ResultParserTest.php';
+require_once 'tests/Core/TestExecutorTest.php';
 
-echo "OHA GUI Tool - Configuration Management Tests\n";
-echo "=============================================\n\n";
+echo "OHA GUI Tool - All Tests\n";
+echo "========================\n\n";
 
 $allPassed = true;
 
@@ -168,6 +176,12 @@ $allPassed &= runTests('ConfigurationManagerTest');
 
 // Run OhaCommandBuilder tests
 $allPassed &= runTests('OhaCommandBuilderTest');
+
+// Run ResultParser tests
+$allPassed &= runTests('ResultParserTest');
+
+// Run TestExecutor tests
+$allPassed &= runTests('TestExecutorTest');
 
 if ($allPassed) {
     echo "All tests passed! ✅\n";

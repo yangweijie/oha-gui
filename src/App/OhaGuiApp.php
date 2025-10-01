@@ -1,18 +1,20 @@
 <?php
 
+declare(strict_types=1);
+
 namespace OhaGui\App;
 
 use Kingbes\Libui\App;
+use Kingbes\Libui\Base;
 use OhaGui\GUI\MainWindow;
 use RuntimeException;
 use Throwable;
 
 /**
- * Main OHA GUI Application class
- * 
- * Handles application initialization, lifecycle management, and main event loop
+ * Main application class for OHA GUI Tool
+ * Handles libui initialization, application lifecycle, and main event loop
  */
-class OhaGuiApp
+class OhaGuiApp extends Base
 {
     private ?MainWindow $mainWindow = null;
     private bool $isRunning = false;
@@ -22,111 +24,117 @@ class OhaGuiApp
      */
     public function __construct()
     {
-        try {
-            // Initialize libui
-            App::init();
-            
-            // Set up application quit handler
-            App::onShouldQuit(function($data) {
-                return $this->onShouldQuit();
-            });
-            
-            $this->isRunning = true;
-            
-            // Log successful initialization
-            error_log("OHA GUI Application initialized successfully");
-            
-        } catch (Throwable $e) {
-            error_log("Failed to initialize OHA GUI Application: " . $e->getMessage());
-            throw new RuntimeException("Application initialization failed: " . $e->getMessage(), 0, $e);
+        // Initialize libui
+        $this->initializeLibui();
+    }
+
+    /**
+     * Initialize libui library
+     * 
+     * @throws RuntimeException if libui initialization fails
+     */
+    private function initializeLibui(): void
+    {
+        $ffi = self::ffi();
+        
+        // Initialize libui
+        $options = $ffi->new('uiInitOptions');
+        $options->Size = \FFI::sizeof($options);
+        
+        $error = $ffi->uiInit(\FFI::addr($options));
+        
+        if ($error !== null) {
+            $errorMessage = \FFI::string($error);
+            $ffi->uiFreeInitError($error);
+            throw new RuntimeException("Failed to initialize libui: " . $errorMessage);
         }
     }
 
     /**
-     * Run the main application
-     * 
+     * Run the application main loop
+     *
      * @return void
+     * @throws Throwable
      */
     public function run(): void
     {
-        if (!$this->isRunning) {
-            throw new RuntimeException('Application is not initialized or has been shut down');
+        if ($this->isRunning) {
+            return;
         }
 
-        // Create and show the main window
-        $this->mainWindow = new MainWindow();
-        $this->mainWindow->show();
+        $this->isRunning = true;
 
-        // Set up periodic timer for test status updates
-        $this->setupPeriodicUpdates();
+        try {
+            // Create and show main window
+            $this->mainWindow = new MainWindow();
+            $this->mainWindow->show();
 
-        // Start the main event loop
-        App::main();
+            // Set up periodic timer for test execution monitoring
+            $this->setupPeriodicTimer();
+            App::onShouldQuit(function () {
+                App::quit();
+                return true;
+            });
+            // Start the main event loop
+            App::main();
+
+        } catch (Throwable $e) {
+            error_log("Application error: " . $e->getMessage());
+            throw $e;
+        } finally {
+            $this->shutdown();
+        }
     }
 
     /**
-     * Setup periodic updates for test execution monitoring
-     * 
-     * @return void
+     * Setup periodic timer for test execution monitoring
      */
-    private function setupPeriodicUpdates(): void
+    private function setupPeriodicTimer(): void
     {
-        // Note: libui doesn't have built-in timer support
-        // The test execution monitoring is handled through callbacks
-        // in the TestExecutor, so no additional periodic updates are needed
-        // This method is kept for future enhancements if needed
+        $ffi = self::ffi();
+        
+        // Create a timer that calls our update method every 100ms
+        $callback = function() {
+            if ($this->mainWindow !== null) {
+                $this->mainWindow->update();
+            }
+            return 1; // Continue timer
+        };
+        
+        // Use uiTimer to create a periodic callback
+        $ffi->uiTimer(100, $callback, null);
     }
 
     /**
-     * Shutdown the application with comprehensive cleanup
+     * Shutdown the application and cleanup resources
      * 
      * @return void
      */
     public function shutdown(): void
     {
-        if ($this->isRunning) {
-            error_log("Shutting down OHA GUI Application...");
-            
-            $this->isRunning = false;
-            
-            try {
-                // Perform comprehensive cleanup if main window exists
-                if ($this->mainWindow !== null) {
-                    $this->mainWindow->performResourceCleanup();
-                    $this->mainWindow = null;
-                }
-                
-                // Quit the main loop
-                App::quit();
-                
-                // Uninitialize libui
-                App::unInit();
-                
-                error_log("OHA GUI Application shutdown completed successfully");
-                
-            } catch (Throwable $e) {
-                error_log("Error during application shutdown: " . $e->getMessage());
-                // Continue with shutdown even if cleanup fails
-                try {
-                    App::quit();
-                    App::unInit();
-                } catch (Throwable $cleanupError) {
-                    error_log("Critical error during final cleanup: " . $cleanupError->getMessage());
-                }
-            }
+        if (!$this->isRunning) {
+            return;
         }
-    }
 
-    /**
-     * Handle application quit request
-     * 
-     * @return int 1 to allow quit, 0 to prevent quit
-     */
-    private function onShouldQuit(): int
-    {
-        // Allow the application to quit
-        $this->shutdown();
-        return 1;
+        $this->isRunning = false;
+
+        try {
+            // Cleanup main window first
+            if ($this->mainWindow !== null) {
+                $this->mainWindow->cleanup();
+                $this->mainWindow = null;
+            }
+
+            // Quit libui main loop
+            App::quit();
+
+            // Log successful shutdown
+            error_log("OHA GUI application shutdown completed successfully");
+
+        } catch (Throwable $e) {
+            error_log("Shutdown error: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
+        }
     }
 
     /**
@@ -147,5 +155,27 @@ class OhaGuiApp
     public function isRunning(): bool
     {
         return $this->isRunning;
+    }
+
+    /**
+     * Handle application quit request
+     * Called when user tries to quit the application
+     * 
+     * @return bool true to allow quit, false to prevent
+     */
+    public function onShouldQuit(): bool
+    {
+        App::quit();
+        return true;
+    }
+
+    /**
+     * Destructor - ensure cleanup
+     */
+    public function __destruct()
+    {
+        if ($this->isRunning) {
+            $this->shutdown();
+        }
     }
 }

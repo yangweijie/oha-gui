@@ -2,9 +2,6 @@
 
 use OhaGui\Core\ConfigurationValidator;
 
-/**
- * Unit tests for ConfigurationValidator class
- */
 class ConfigurationValidatorTest
 {
     private ConfigurationValidator $validator;
@@ -14,409 +11,483 @@ class ConfigurationValidatorTest
         $this->validator = new ConfigurationValidator();
     }
 
-    /**
-     * Test validating valid configuration data
-     */
-    public function testValidateValidConfigurationData(): void
+    private function getValidConfigurationData(): array
     {
-        $validData = [
+        return [
             'name' => 'test-config',
-            'url' => 'https://api.example.com',
+            'url' => 'https://example.com/api',
             'method' => 'GET',
             'concurrentConnections' => 10,
             'duration' => 30,
-            'timeout' => 10,
-            'headers' => ['Content-Type' => 'application/json'],
+            'timeout' => 60,
+            'headers' => ['Authorization' => 'Bearer token123'],
             'body' => '',
-            'createdAt' => '2024-01-01 12:00:00',
-            'updatedAt' => '2024-01-01 12:00:00'
+            'createdAt' => '2023-01-01 12:00:00',
+            'updatedAt' => '2023-01-01 12:00:00'
         ];
-
-        $errors = $this->validator->validateConfigurationData($validData);
-        
-        $this->assertEmpty($errors);
     }
 
-    /**
-     * Test validating configuration with missing required fields
-     */
-    public function testValidateMissingRequiredFields(): void
+    public function testValidateValidConfiguration(): void
     {
-        $invalidData = [
-            'name' => 'test-config',
-            // Missing url, method, concurrentConnections, duration, timeout
-        ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
+        $data = $this->getValidConfigurationData();
+        $errors = $this->validator->validateConfiguration($data);
         
-        $this->assertNotEmpty($errors);
-        $this->assertContains("Required field 'url' is missing", $errors);
-        $this->assertContains("Required field 'method' is missing", $errors);
-        $this->assertContains("Required field 'concurrentConnections' is missing", $errors);
-        $this->assertContains("Required field 'duration' is missing", $errors);
-        $this->assertContains("Required field 'timeout' is missing", $errors);
+        assertEmpty($errors);
     }
 
-    /**
-     * Test validating configuration with invalid URL
-     */
+    public function testValidateConfigurationMissingRequiredFields(): void
+    {
+        $data = [];
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertNotEmpty($errors);
+        assertContains("Required field 'name' is missing or empty", $errors);
+        assertContains("Required field 'url' is missing or empty", $errors);
+        assertContains("Required field 'method' is missing or empty", $errors);
+    }
+
+    public function testValidateConfigurationEmptyRequiredFields(): void
+    {
+        $data = [
+            'name' => '',
+            'url' => '',
+            'method' => ''
+        ];
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertNotEmpty($errors);
+        assertContains("Required field 'name' is missing or empty", $errors);
+        assertContains("Required field 'url' is missing or empty", $errors);
+        assertContains("Required field 'method' is missing or empty", $errors);
+    }
+
+    public function testValidateNameTooShort(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['name'] = '';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains("Required field 'name' is missing or empty", $errors);
+    }
+
+    public function testValidateNameTooLong(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['name'] = str_repeat('a', 101);
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('Configuration name must be no more than 100 characters long', $errors);
+    }
+
+    public function testValidateNameInvalidCharacters(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['name'] = 'invalid/name*with?special<chars>';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('Configuration name can only contain letters, numbers, spaces, hyphens, and underscores', $errors);
+    }
+
+    public function testValidateNameValidCharacters(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['name'] = 'Valid_Name-123 with spaces';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        // Should not have name-related errors
+        $nameErrors = array_filter($errors, fn($error) => strpos($error, 'name') !== false);
+        assertEmpty($nameErrors);
+    }
+
     public function testValidateInvalidUrl(): void
     {
-        $invalidData = [
-            'name' => 'test-config',
-            'url' => 'not-a-valid-url',
-            'method' => 'GET',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10
-        ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
+        $data = $this->getValidConfigurationData();
+        $data['url'] = 'not-a-valid-url';
         
-        $this->assertNotEmpty($errors);
-        $this->assertContains('URL format is invalid', $errors);
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('URL format is invalid', $errors);
     }
 
-    /**
-     * Test validating configuration with invalid HTTP method
-     */
+    public function testValidateUrlWithoutScheme(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['url'] = 'example.com/api';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('URL format is invalid', $errors);
+    }
+
+    public function testValidateUrlWithInvalidScheme(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['url'] = 'ftp://example.com/api';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('URL scheme must be http or https', $errors);
+    }
+
+    public function testValidateValidUrls(): void
+    {
+        $validUrls = [
+            'http://example.com',
+            'https://example.com',
+            'https://api.example.com/v1/users',
+            'http://localhost:8080/api',
+            'https://subdomain.example.com:443/path?query=value'
+        ];
+
+        foreach ($validUrls as $url) {
+            $data = $this->getValidConfigurationData();
+            $data['url'] = $url;
+            
+            $errors = $this->validator->validateConfiguration($data);
+            $urlErrors = array_filter($errors, fn($error) => strpos($error, 'URL') !== false);
+            
+            assertTrue(empty($urlErrors), "URL '{$url}' should be valid");
+        }
+    }
+
     public function testValidateInvalidMethod(): void
     {
-        $invalidData = [
-            'name' => 'test-config',
-            'url' => 'https://example.com',
-            'method' => 'INVALID',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10
-        ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
+        $data = $this->getValidConfigurationData();
+        $data['method'] = 'INVALID';
         
-        $this->assertNotEmpty($errors);
-        $this->assertContains('HTTP method must be one of: GET, POST, PUT, DELETE, PATCH', $errors);
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('HTTP method must be one of: GET, POST, PUT, DELETE, PATCH', $errors);
     }
 
-    /**
-     * Test validating configuration with out-of-range numeric values
-     */
-    public function testValidateOutOfRangeValues(): void
+    public function testValidateValidMethods(): void
     {
-        $invalidData = [
-            'name' => 'test-config',
-            'url' => 'https://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 2000,  // Too high
-            'duration' => 0,  // Too low
-            'timeout' => 500  // Too high
-        ];
+        $validMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
 
-        $errors = $this->validator->validateConfigurationData($invalidData);
-        
-        $this->assertNotEmpty($errors);
-        $this->assertContains('concurrentConnections must be between 1 and 1000', $errors);
-        $this->assertContains('duration must be between 1 and 3600', $errors);
-        $this->assertContains('timeout must be between 1 and 300', $errors);
+        foreach ($validMethods as $method) {
+            $data = $this->getValidConfigurationData();
+            $data['method'] = $method;
+            
+            $errors = $this->validator->validateConfiguration($data);
+            $methodErrors = array_filter($errors, fn($error) => strpos($error, 'method') !== false);
+            
+            assertTrue(empty($methodErrors), "Method '{$method}' should be valid");
+        }
     }
 
-    /**
-     * Test validating configuration with invalid headers
-     */
-    public function testValidateInvalidHeaders(): void
+    public function testValidateConcurrentConnectionsOutOfRange(): void
     {
-        $invalidData = [
-            'name' => 'test-config',
-            'url' => 'https://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10,
-            'headers' => [
-                '' => 'value',  // Empty header name
-                'valid-header' => 'value'
-            ]
-        ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
+        $data = $this->getValidConfigurationData();
         
-        $this->assertNotEmpty($errors);
-        $this->assertContains('Header names cannot be empty', $errors);
+        // Test minimum
+        $data['concurrentConnections'] = 0;
+        $errors = $this->validator->validateConfiguration($data);
+        assertContains('Concurrent connections must be at least 1', $errors);
+        
+        // Test maximum
+        $data['concurrentConnections'] = 1001;
+        $errors = $this->validator->validateConfiguration($data);
+        assertContains('Concurrent connections must be no more than 1000', $errors);
     }
 
-    /**
-     * Test validating configuration with invalid JSON body
-     */
-    public function testValidateInvalidJsonBody(): void
+    public function testValidateConcurrentConnectionsInvalidType(): void
     {
-        $invalidData = [
-            'name' => 'test-config',
-            'url' => 'https://example.com',
-            'method' => 'POST',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10,
-            'body' => '{"invalid": json}'  // Invalid JSON
-        ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
+        $data = $this->getValidConfigurationData();
+        $data['concurrentConnections'] = 'not-a-number';
         
-        $this->assertNotEmpty($errors);
-        $this->assertTrue(
-            array_filter($errors, fn($error) => str_contains($error, 'Request body appears to be JSON but is invalid'))
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('Concurrent connections must be a number', $errors);
+    }
+
+    public function testValidateDurationOutOfRange(): void
+    {
+        $data = $this->getValidConfigurationData();
+        
+        // Test minimum
+        $data['duration'] = 0;
+        $errors = $this->validator->validateConfiguration($data);
+        assertContains('Duration must be at least 1 second(s)', $errors);
+        
+        // Test maximum
+        $data['duration'] = 3601;
+        $errors = $this->validator->validateConfiguration($data);
+        assertContains('Duration must be no more than 3600 seconds', $errors);
+    }
+
+    public function testValidateTimeoutOutOfRange(): void
+    {
+        $data = $this->getValidConfigurationData();
+        
+        // Test minimum
+        $data['timeout'] = 0;
+        $errors = $this->validator->validateConfiguration($data);
+        assertContains('Timeout must be at least 1 second(s)', $errors);
+        
+        // Test maximum
+        $data['timeout'] = 301;
+        $errors = $this->validator->validateConfiguration($data);
+        assertContains('Timeout must be no more than 300 seconds', $errors);
+    }
+
+    public function testValidateHeadersInvalidType(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['headers'] = 'not-an-array';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('Headers must be an array/object', $errors);
+    }
+
+    public function testValidateHeadersInvalidKeys(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['headers'] = ['' => 'value', 'valid-key' => 'value'];
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('Header keys must be non-empty strings', $errors);
+    }
+
+    public function testValidateHeadersInvalidValues(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['headers'] = ['key' => 123];
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('Header values must be strings', $errors);
+    }
+
+    public function testValidateBodyInvalidType(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['body'] = 123;
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('Request body must be a string', $errors);
+    }
+
+    public function testValidateBodyInvalidJsonForPostMethod(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['method'] = 'POST';
+        $data['body'] = 'invalid json content';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains('Request body must be valid JSON or form data for POST requests', $errors);
+    }
+
+    public function testValidateBodyValidJsonForPostMethod(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['method'] = 'POST';
+        $data['body'] = '{"key": "value"}';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        $bodyErrors = array_filter($errors, fn($error) => strpos($error, 'body') !== false);
+        
+        assertEmpty($bodyErrors);
+    }
+
+    public function testValidateBodyValidFormDataForPostMethod(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['method'] = 'POST';
+        $data['body'] = 'key1=value1&key2=value2';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        $bodyErrors = array_filter($errors, fn($error) => strpos($error, 'body') !== false);
+        
+        assertEmpty($bodyErrors);
+    }
+
+    public function testValidateTimestampsInvalidFormat(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['createdAt'] = 'invalid-date';
+        $data['updatedAt'] = '2023/01/01 12:00:00'; // Wrong format
+        
+        $errors = $this->validator->validateConfiguration($data);
+        
+        assertContains("createdAt must be in format 'Y-m-d H:i:s'", $errors);
+        assertContains("updatedAt must be in format 'Y-m-d H:i:s'", $errors);
+    }
+
+    public function testValidateTimestampsValidFormat(): void
+    {
+        $data = $this->getValidConfigurationData();
+        $data['createdAt'] = '2023-01-01 12:00:00';
+        $data['updatedAt'] = '2023-12-31 23:59:59';
+        
+        $errors = $this->validator->validateConfiguration($data);
+        $timestampErrors = array_filter($errors, fn($error) => 
+            strpos($error, 'createdAt') !== false || strpos($error, 'updatedAt') !== false
         );
+        
+        assertEmpty($timestampErrors);
     }
 
-    /**
-     * Test business rule validation - body with GET method
-     */
-    public function testValidateBodyWithGetMethod(): void
+    public function testValidateConfigurationFileValidJson(): void
     {
-        $invalidData = [
-            'name' => 'test-config',
+        $data = $this->getValidConfigurationData();
+        $jsonContent = json_encode($data);
+        
+        $errors = $this->validator->validateConfigurationFile($jsonContent);
+        
+        assertEmpty($errors);
+    }
+
+    public function testValidateConfigurationFileInvalidJson(): void
+    {
+        $invalidJson = '{"name": "test", "url": "https://example.com", "method": "GET"'; // Missing closing brace
+        
+        $errors = $this->validator->validateConfigurationFile($invalidJson);
+        
+        assertNotEmpty($errors);
+        assertTrue(strpos($errors[0], 'Invalid JSON format') !== false);
+    }
+
+    public function testValidateConfigurationFileNotObject(): void
+    {
+        $jsonContent = '["not", "an", "object"]';
+        
+        $errors = $this->validator->validateConfigurationFile($jsonContent);
+        
+        assertContains('Configuration file must contain a JSON object', $errors);
+    }
+
+    public function testGetSchema(): void
+    {
+        $schema = $this->validator->getSchema();
+        
+        assertIsArray($schema);
+        assertArrayHasKey('type', $schema);
+        assertArrayHasKey('required', $schema);
+        assertArrayHasKey('properties', $schema);
+        assertEquals('object', $schema['type']);
+    }
+
+    public function testGetDefaultValues(): void
+    {
+        $defaults = $this->validator->getDefaultValues();
+        
+        assertIsArray($defaults);
+        assertEquals(1, $defaults['concurrentConnections']);
+        assertEquals(2, $defaults['duration']);
+        assertEquals(30, $defaults['timeout']);
+        assertEquals([], $defaults['headers']);
+        assertEquals('', $defaults['body']);
+    }
+
+    public function testSanitizeConfiguration(): void
+    {
+        $data = [
+            'name' => '  test-config  ',
+            'url' => '  https://example.com/api  ',
+            'method' => 'get',
+            'concurrentConnections' => '10',
+            'duration' => '30.5',
+            'timeout' => '60',
+            'headers' => 'not-an-array',
+            'body' => 123
+        ];
+        
+        $sanitized = $this->validator->sanitizeConfiguration($data);
+        
+        assertEquals('test-config', $sanitized['name']);
+        assertEquals('https://example.com/api', $sanitized['url']);
+        assertEquals('GET', $sanitized['method']);
+        assertEquals(10, $sanitized['concurrentConnections']);
+        assertEquals(30, $sanitized['duration']);
+        assertEquals(60, $sanitized['timeout']);
+        assertEquals([], $sanitized['headers']);
+        assertEquals('123', $sanitized['body']);
+    }
+
+    public function testSanitizeConfigurationWithDefaults(): void
+    {
+        $data = [
+            'name' => 'minimal-config',
             'url' => 'https://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10,
-            'body' => '{"should": "not be here"}'
+            'method' => 'GET'
         ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
         
-        $this->assertNotEmpty($errors);
-        $this->assertContains('Request body is not allowed for GET method', $errors);
+        $sanitized = $this->validator->sanitizeConfiguration($data);
+        
+        assertEquals('minimal-config', $sanitized['name']);
+        assertEquals('https://example.com', $sanitized['url']);
+        assertEquals('GET', $sanitized['method']);
+        assertEquals(1, $sanitized['concurrentConnections']);
+        assertEquals(2, $sanitized['duration']);
+        assertEquals(30, $sanitized['timeout']);
+        assertEquals([], $sanitized['headers']);
+        assertEquals('', $sanitized['body']);
     }
 
-    /**
-     * Test business rule validation - timeout greater than duration
-     */
-    public function testValidateTimeoutGreaterThanDuration(): void
+    public function testIsValid(): void
     {
-        $invalidData = [
-            'name' => 'test-config',
+        $validData = $this->getValidConfigurationData();
+        assertTrue($this->validator->isValid($validData));
+        
+        $invalidData = ['name' => '', 'url' => 'invalid', 'method' => 'INVALID'];
+        assertFalse($this->validator->isValid($invalidData));
+    }
+
+    public function testValidateOrThrowWithValidData(): void
+    {
+        $validData = $this->getValidConfigurationData();
+        
+        // Should not throw exception
+        $this->validator->validateOrThrow($validData);
+        assertTrue(true); // If we reach here, no exception was thrown
+    }
+
+    public function testValidateOrThrowWithInvalidData(): void
+    {
+        $invalidData = ['name' => '', 'url' => 'invalid', 'method' => 'INVALID'];
+        
+        try {
+            $this->validator->validateOrThrow($invalidData);
+            // If we reach here, exception was not thrown
+            throw new Exception('Expected InvalidArgumentException was not thrown');
+        } catch (InvalidArgumentException $e) {
+            // Expected exception
+            if (strpos($e->getMessage(), 'Configuration validation failed') === false) {
+                throw new Exception('Exception message does not match expected: ' . $e->getMessage());
+            }
+        }
+    }
+
+    public function testOptionalFieldsAreOptional(): void
+    {
+        $minimalData = [
+            'name' => 'minimal-config',
             'url' => 'https://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 10,
-            'duration' => 10,
-            'timeout' => 20  // Greater than duration
+            'method' => 'GET'
         ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
         
-        $this->assertNotEmpty($errors);
-//        $this->assertContains('Timeout cannot be greater than test duration', $errors);
+        $errors = $this->validator->validateConfiguration($minimalData);
+        
+        assertEmpty($errors);
     }
 
-    /**
-     * Test validating valid JSON content
-     */
-    public function testValidateValidJsonContent(): void
+    public function testNumericStringConversion(): void
     {
-        $validJson = json_encode([
-            'name' => 'test-config',
-            'url' => 'https://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10
-        ]);
-
-        $errors = $this->validator->validateJsonContent($validJson);
+        $data = $this->getValidConfigurationData();
+        $data['concurrentConnections'] = '10';
+        $data['duration'] = '30';
+        $data['timeout'] = '60';
         
-        $this->assertEmpty($errors);
-    }
-
-    /**
-     * Test validating empty JSON content
-     */
-    public function testValidateEmptyJsonContent(): void
-    {
-        $errors = $this->validator->validateJsonContent('');
+        $errors = $this->validator->validateConfiguration($data);
         
-        $this->assertNotEmpty($errors);
-        $this->assertContains('Configuration content is empty', $errors);
-    }
-
-    /**
-     * Test validating malformed JSON content
-     */
-    public function testValidateMalformedJsonContent(): void
-    {
-        $malformedJson = '{"name": "test", "url": "https://example.com"'; // Missing closing brace
-        
-        $errors = $this->validator->validateJsonContent($malformedJson);
-        
-        $this->assertNotEmpty($errors);
-        $this->assertTrue(
-            array_filter($errors, fn($error) => str_contains($error, 'Invalid JSON syntax'))
-        );
-    }
-
-    /**
-     * Test validating non-object JSON content
-     */
-    public function testValidateNonObjectJsonContent(): void
-    {
-        $arrayJson = '["not", "an", "object"]';
-        
-        $errors = $this->validator->validateJsonContent($arrayJson);
-        
-        $this->assertNotEmpty($errors);
-        $this->assertContains('Configuration must be a JSON object', $errors);
-    }
-
-    /**
-     * Test getting configuration schema
-     */
-    public function testGetConfigurationSchema(): void
-    {
-        $schema = $this->validator->getConfigurationSchema();
-        
-        $this->assertIsArray($schema);
-        $this->assertArrayHasKey('type', $schema);
-        $this->assertArrayHasKey('required', $schema);
-        $this->assertArrayHasKey('properties', $schema);
-        $this->assertEquals('object', $schema['type']);
-        
-        $requiredFields = $schema['required'];
-        $this->assertContains('name', $requiredFields);
-        $this->assertContains('url', $requiredFields);
-        $this->assertContains('method', $requiredFields);
-        $this->assertContains('concurrentConnections', $requiredFields);
-        $this->assertContains('duration', $requiredFields);
-        $this->assertContains('timeout', $requiredFields);
-    }
-
-    /**
-     * Test validating configuration file
-     */
-    public function testValidateConfigurationFile(): void
-    {
-        // Create a temporary valid configuration file
-        $tempFile = tempnam(sys_get_temp_dir(), 'oha_test_config');
-        $validConfig = [
-            'name' => 'test-config',
-            'url' => 'https://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10
-        ];
-        file_put_contents($tempFile, json_encode($validConfig));
-
-        $result = $this->validator->validateConfigurationFile($tempFile);
-        
-        $this->assertTrue($result['isValid']);
-        $this->assertEmpty($result['errors']);
-        $this->assertIsArray($result['warnings']);
-        $this->assertEquals($tempFile, $result['filePath']);
-
-        // Clean up
-        unlink($tempFile);
-    }
-
-    /**
-     * Test validating non-existent configuration file
-     */
-    public function testValidateNonExistentConfigurationFile(): void
-    {
-        $result = $this->validator->validateConfigurationFile('/non/existent/file.json');
-        
-        $this->assertFalse($result['isValid']);
-        $this->assertContains('Configuration file does not exist', $result['errors']);
-    }
-
-    /**
-     * Test validation with warnings
-     */
-    public function testValidationWithWarnings(): void
-    {
-        // Create a configuration that should generate warnings
-        $tempFile = tempnam(sys_get_temp_dir(), 'oha_test_config');
-        $configWithWarnings = [
-            'name' => 'test-config',
-            'url' => 'http://localhost:8080',  // Should generate localhost warning
-            'method' => 'GET',
-            'concurrentConnections' => 200,  // Should generate high connections warning
-            'duration' => 600,  // Should generate long duration warning
-            'timeout' => 10
-        ];
-        file_put_contents($tempFile, json_encode($configWithWarnings));
-
-        $result = $this->validator->validateConfigurationFile($tempFile);
-        
-        $this->assertTrue($result['isValid']);
-        $this->assertEmpty($result['errors']);
-        $this->assertNotEmpty($result['warnings']);
-        
-        $warnings = $result['warnings'];
-        $this->assertContains('High concurrent connections may cause excessive server load', $warnings);
-        $this->assertContains('Long test duration may consume significant resources', $warnings);
-        $this->assertContains('Configuration uses localhost URL', $warnings);
-
-        // Clean up
-        unlink($tempFile);
-    }
-
-    /**
-     * Test validation of configuration name with invalid characters
-     */
-    public function testValidateInvalidConfigurationName(): void
-    {
-        $invalidData = [
-            'name' => 'test/config\\with:invalid*chars',
-            'url' => 'https://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10
-        ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
-        
-        $this->assertNotEmpty($errors);
-        $this->assertTrue(
-            array_filter($errors, fn($error) => str_contains($error, 'Configuration name contains invalid characters'))
-        );
-    }
-
-    /**
-     * Test validation of URL with unsupported protocol
-     */
-    public function testValidateUnsupportedProtocol(): void
-    {
-        $invalidData = [
-            'name' => 'test-config',
-            'url' => 'ftp://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 10,
-            'duration' => 30,
-            'timeout' => 10
-        ];
-
-        $errors = $this->validator->validateConfigurationData($invalidData);
-        
-        $this->assertNotEmpty($errors);
-        $this->assertContains('URL must use HTTP or HTTPS protocol', $errors);
-    }
-
-    /**
-     * Test validation of excessive load warning
-     */
-    public function testValidateExcessiveLoadWarning(): void
-    {
-        $excessiveData = [
-            'name' => 'test-config',
-            'url' => 'https://example.com',
-            'method' => 'GET',
-            'concurrentConnections' => 1000,
-            'duration' => 200,  // 1000 * 200 = 200,000 > 100,000
-            'timeout' => 10
-        ];
-
-        $errors = $this->validator->validateConfigurationData($excessiveData);
-        
-        $this->assertNotEmpty($errors);
-        $this->assertContains('Configuration may generate excessive load (consider reducing concurrent connections or duration)', $errors);
+        assertEmpty($errors);
     }
 }

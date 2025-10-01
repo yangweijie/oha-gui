@@ -44,7 +44,10 @@ src/
 │   ├── MainWindow.php             # Main window implementation
 │   ├── ConfigurationForm.php      # Test configuration form
 │   ├── ResultsDisplay.php         # Test results display
-│   └── ConfigurationList.php      # Configuration management UI
+│   ├── ConfigurationDropdown.php  # Configuration selection dropdown
+│   ├── ConfigurationManager.php   # Configuration management popup window
+│   ├── ConfigurationTable.php     # Configuration table display
+│   └── ConfigurationDialog.php    # Add/Edit configuration dialog
 ├── Core/
 │   ├── OhaCommandBuilder.php      # OHA command construction
 │   ├── ConfigurationManager.php   # Configuration CRUD operations
@@ -80,9 +83,36 @@ class OhaGuiApp
 ### 2. Main Window (MainWindow)
 
 **Responsibilities:**
-- Create the main GUI layout
+- Create the main GUI layout with configuration dropdown and management button
 - Coordinate between different UI components
-- Handle window events
+- Handle window events and configuration selection
+
+**Layout Structure:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 输入 (Input Section)                                        │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ 配置: [Select Config ▼] [管理]                          │ │
+│ │ URL: [                                    ]             │ │
+│ │ Method: [GET ▼]  Connections: [1]  Duration: [2s]      │ │
+│ │ [开始] [停止]                                           │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ 结果 (Results Section)                                      │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ Ready to run test                                       │ │
+│ │ Requests/sec: --                                        │ │
+│ │ Total requests: --                                      │ │
+│ │ Success rate: --                                        │ │
+│ │ Performance: --                                         │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ 测试输出 (Test Output Section)                              │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ Test output will appear here...                         │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
 
 **Key Methods:**
 ```php
@@ -92,10 +122,34 @@ class MainWindow
     public function createLayout(): void
     public function show(): void
     public function onClosing(): bool
+    public function onManagementButtonClick(): void
+    public function refreshConfigurationDropdown(): void
+    public function selectConfiguration(string $configName): void
 }
 ```
 
-### 3. Configuration Form (ConfigurationForm)
+### 3. Configuration Components
+
+#### 3.1 Configuration Dropdown (ConfigurationDropdown)
+
+**Responsibilities:**
+- Display available configurations in a dropdown
+- Handle configuration selection
+- Show placeholder text when no configuration is selected
+
+**Key Methods:**
+```php
+class ConfigurationDropdown
+{
+    public function createDropdown(): object
+    public function populateConfigurations(array $configs): void
+    public function getSelectedConfiguration(): ?string
+    public function setSelectedConfiguration(string $name): void
+    public function onSelectionChanged(callable $callback): void
+}
+```
+
+#### 3.2 Configuration Form (ConfigurationForm)
 
 **Responsibilities:**
 - Display input fields for test parameters
@@ -120,6 +174,81 @@ class ConfigurationForm
     public function setConfiguration(TestConfiguration $config): void
     public function validateInput(): array
     public function onStartTest(): void
+}
+```
+
+#### 3.3 Configuration Management Window (ConfigurationManagerWindow)
+
+**Responsibilities:**
+- Display configuration management popup window
+- Show configuration table with action buttons
+- Handle add new configuration button
+
+**Layout Structure:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Configuration Management                                    │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ [新增]                                                  │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ 名称    │ 配置概要      │ 编辑 │ 删除 │ 选择           │ │
+│ │ baidu   │ GET http://.. │ [编辑] │ [删除] │ [选择]      │ │
+│ │ google  │ POST https://│ [编辑] │ [删除] │ [选择]      │ │
+│ └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Methods:**
+```php
+class ConfigurationManagerWindow
+{
+    public function __construct()
+    public function show(): void
+    public function createLayout(): void
+    public function refreshTable(): void
+    public function onAddNewClick(): void
+    public function onEditClick(string $configName): void
+    public function onDeleteClick(string $configName): void
+    public function onSelectClick(string $configName): void
+}
+```
+
+#### 3.4 Configuration Table (ConfigurationTable)
+
+**Responsibilities:**
+- Display configurations in a table format
+- Show configuration name and summary
+- Provide action buttons for each configuration
+
+**Key Methods:**
+```php
+class ConfigurationTable
+{
+    public function createTable(): object
+    public function populateTable(array $configurations): void
+    public function addRow(TestConfiguration $config): void
+    public function removeRow(string $configName): void
+    public function getConfigurationSummary(TestConfiguration $config): string
+}
+```
+
+#### 3.5 Configuration Dialog (ConfigurationDialog)
+
+**Responsibilities:**
+- Handle add/edit configuration popup dialogs
+- Provide form for configuration details
+- Save configuration data
+
+**Key Methods:**
+```php
+class ConfigurationDialog
+{
+    public function showAddDialog(): void
+    public function showEditDialog(TestConfiguration $config): void
+    public function createForm(): object
+    public function onSave(): void
+    public function onCancel(): void
 }
 ```
 

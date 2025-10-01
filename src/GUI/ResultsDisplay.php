@@ -1,456 +1,476 @@
 <?php
 
+declare(strict_types=1);
+
 namespace OhaGui\GUI;
 
-use Kingbes\Libui\Group;
-use Kingbes\Libui\Box;
-use Kingbes\Libui\Label;
-use Kingbes\Libui\MultilineEntry;
-use Kingbes\Libui\Button;
-use Kingbes\Libui\ProgressBar;
-use Kingbes\Libui\Control;
-use Kingbes\Libui\Window;
 use FFI\CData;
+use Kingbes\Libui\Box;
+use Kingbes\Libui\Control;
+use Kingbes\Libui\Label;
+use Kingbes\Libui\Group;
+use Kingbes\Libui\Button;
+use Kingbes\Libui\MultilineEntry;
 use OhaGui\Models\TestResult;
-use Exception;
+use Throwable;
 
 /**
- * Results Display component for showing test output and metrics
- * 
- * Displays formatted test results, real-time output, and provides save functionality
+ * Results display component for OHA GUI Tool
+ * Shows test results and real-time output
  */
-class ResultsDisplay
+class ResultsDisplay extends BaseGUIComponent
 {
-    private CData $group;
-    private CData $metricsBox;
-    private CData $outputArea;
-    private CData $saveButton;
-    private CData $clearButton;
-    private CData $progressBar;
-    
-    // Metric labels
-    private CData $requestsPerSecLabel;
-    private CData $totalRequestsLabel;
-    private CData $successRateLabel;
-    private CData $performanceLabel;
-    private CData $statusLabel;
-    
-    private ?TestResult $currentResult = null;
-    private bool $isTestRunning = false;
-    
-    private $onSaveResultsCallback = null;
+    private $resultsGroup;
+    private $vbox;
+    private $statusLabel;
+    private $metricsHBox;
+    private $requestsPerSecLabel;
+    private $totalRequestsLabel;
+    private $successRateLabel;
+    private $performanceLabel;
+    private $outputGroup;
+    private $outputEntry;
+    private $saveButton;
+
+    private string $currentOutput = "";
+    private ?TestResult $lastResult = null;
 
     /**
      * Initialize the results display
      */
     public function __construct()
     {
-        $this->createUI();
-        $this->resetDisplay();
+        // Constructor
     }
 
     /**
      * Create the results display UI
      * 
-     * @return void
+     * @return CData libui control
      */
-    private function createUI(): void
+    public function createResultsDisplay()
     {
-        // Create main group
-        $this->group = Group::create('Test Results');
-        Group::setMargined($this->group, true);
-
         // Create main vertical box
-        $mainBox = Box::newVerticalBox();
-        Box::setPadded($mainBox, true);
+        $mainVBox = Box::newVerticalBox();
+        Box::setPadded($mainVBox, true);
 
-        // Create metrics section
-        $this->createMetricsSection($mainBox);
+        // Create results section (fixed height)
+        $this->createResultsSection($mainVBox);
 
-        // Create progress bar
-        $this->progressBar = ProgressBar::create();
-        ProgressBar::setValue($this->progressBar, 0);
-        Control::hide($this->progressBar); // Initially hidden
-        Box::append($mainBox, $this->progressBar, false);
+        // Create output section (stretch to fill available space)
+        $this->createOutputSection($mainVBox);
 
-        // Create output area
-        $this->createOutputSection($mainBox);
-
-        // Create button section
-        $this->createButtonSection($mainBox);
-
-        // Set main box as group child
-        Group::setChild($this->group, $mainBox);
+        return $mainVBox;
     }
 
     /**
-     * Create the metrics display section
+     * Create results metrics section
      * 
-     * @param CData $parentBox
-     * @return void
+     * @param mixed $parent
      */
-    private function createMetricsSection(CData $parentBox): void
+    private function createResultsSection($parent): void
     {
-        $metricsGroup = Group::create('Metrics');
-        Group::setMargined($metricsGroup, true);
+        // Create results group
+        $this->resultsGroup = Group::create("结果 (Results)");
+        Group::setMargined($this->resultsGroup, true);
 
-        $this->metricsBox = Box::newVerticalBox();
-        Box::setPadded($this->metricsBox, true);
+        // Create results layout
+        $this->vbox = Box::newVerticalBox();
+        Box::setPadded($this->vbox, true);
 
         // Status label
-        $this->statusLabel = Label::create('Ready to run test');
-        Box::append($this->metricsBox, $this->statusLabel, false);
+        $this->statusLabel = Label::create("Ready to run test");
+        Box::append($this->vbox, $this->statusLabel, false);
+
+        // Create metrics display
+        $this->createMetricsDisplay();
+
+        // Set results content
+        Group::setChild($this->resultsGroup, $this->vbox);
+        Box::append($parent, $this->resultsGroup, false);
+    }
+
+    /**
+     * Create metrics display
+     */
+    private function createMetricsDisplay(): void
+    {
+        // Create horizontal box for metrics
+        $this->metricsHBox = Box::newHorizontalBox();
+        Box::setPadded($this->metricsHBox, true);
 
         // Requests per second
-        $this->requestsPerSecLabel = Label::create('Requests/sec: --');
-        Box::append($this->metricsBox, $this->requestsPerSecLabel, false);
+        $reqSecVBox = Box::newVerticalBox();
+        $reqSecLabel = Label::create("Requests/sec:");
+        $this->requestsPerSecLabel = Label::create("--");
+        Box::append($reqSecVBox, $reqSecLabel, false);
+        Box::append($reqSecVBox, $this->requestsPerSecLabel, false);
+        Box::append($this->metricsHBox, $reqSecVBox, true);
 
         // Total requests
-        $this->totalRequestsLabel = Label::create('Total requests: --');
-        Box::append($this->metricsBox, $this->totalRequestsLabel, false);
+        $totalVBox = Box::newVerticalBox();
+        $totalLabel = Label::create("Total requests:");
+        $this->totalRequestsLabel = Label::create("--");
+        Box::append($totalVBox, $totalLabel, false);
+        Box::append($totalVBox, $this->totalRequestsLabel, false);
+        Box::append($this->metricsHBox, $totalVBox, true);
 
         // Success rate
-        $this->successRateLabel = Label::create('Success rate: --');
-        Box::append($this->metricsBox, $this->successRateLabel, false);
+        $successVBox = Box::newVerticalBox();
+        $successLabel = Label::create("Success rate:");
+        $this->successRateLabel = Label::create("--");
+        Box::append($successVBox, $successLabel, false);
+        Box::append($successVBox, $this->successRateLabel, false);
+        Box::append($this->metricsHBox, $successVBox, true);
 
-        // Performance rating
-        $this->performanceLabel = Label::create('Performance: --');
-        Box::append($this->metricsBox, $this->performanceLabel, false);
+        // Performance
+        $perfVBox = Box::newVerticalBox();
+        $perfLabel = Label::create("Performance:");
+        $this->performanceLabel = Label::create("--");
+        Box::append($perfVBox, $perfLabel, false);
+        Box::append($perfVBox, $this->performanceLabel, false);
+        Box::append($this->metricsHBox, $perfVBox, true);
 
-        Group::setChild($metricsGroup, $this->metricsBox);
-        Box::append($parentBox, $metricsGroup, false);
+        // Add metrics to results
+        Box::append($this->vbox, $this->metricsHBox, false);
     }
 
     /**
-     * Create the output display section
+     * Create output section
      * 
-     * @param CData $parentBox
-     * @return void
+     * @param mixed $parent
      */
-    private function createOutputSection(CData $parentBox): void
+    private function createOutputSection($parent): void
     {
-        $outputGroup = Group::create('Test Output');
-        Group::setMargined($outputGroup, true);
+        // Create output group
+        $this->outputGroup = Group::create("测试输出 (Test Output)");
+        Group::setMargined($this->outputGroup, false);
 
-        $this->outputArea = MultilineEntry::createNonWrapping();
-        MultilineEntry::setReadOnly($this->outputArea, true);
-        MultilineEntry::setText($this->outputArea, 'Test output will appear here...');
+        // Create output layout
+        $outputVBox = Box::newVerticalBox();
+        Box::setPadded($outputVBox, true);
 
-        Group::setChild($outputGroup, $this->outputArea);
-        Box::append($parentBox, $outputGroup, true);
+        // Create output text area - give it maximum space to fill available area
+        $this->outputEntry = MultilineEntry::create();
+        Control::disable($this->outputEntry);
+        MultilineEntry::setText($this->outputEntry, "Test output will appear here...");
+        // This should stretch to fill available space
+        Box::append($outputVBox, $this->outputEntry, true);
+
+        // Create save button
+        $buttonHBox = Box::newHorizontalBox();
+        Box::setPadded($buttonHBox, true);
+
+        $spacer = Label::create("");
+        Box::append($buttonHBox, $spacer, true);
+
+        $this->saveButton = Button::create("Save Results");
+        Control::disable($this->saveButton);
+        $saveCallback = function() {
+            $this->onSaveResults();
+        };
+        Button::onClicked($this->saveButton, $saveCallback);
+        Box::append($buttonHBox, $this->saveButton, false);
+
+        Box::append($outputVBox, $buttonHBox, false);
+
+        // Set output content
+        Group::setChild($this->outputGroup, $outputVBox);
+        Box::append($parent, $this->outputGroup, true);
     }
 
     /**
-     * Create the button section
+     * Update status message
      * 
-     * @param CData $parentBox
-     * @return void
+     * @param string $status
      */
-    private function createButtonSection(CData $parentBox): void
+    public function updateStatus(string $status): void
     {
-        $buttonBox = Box::newHorizontalBox();
-        Box::setPadded($buttonBox, true);
-
-        // Save results button
-        $this->saveButton = Button::create('Save Results');
-        Control::disable($this->saveButton); // Initially disabled
-        Box::append($buttonBox, $this->saveButton, false);
-
-        // Clear output button
-        $this->clearButton = Button::create('Clear Output');
-        Box::append($buttonBox, $this->clearButton, false);
-
-        Box::append($parentBox, $buttonBox, false);
-
-        $this->setupButtonHandlers();
+        if ($this->statusLabel !== null) {
+            Label::setText($this->statusLabel, $status);
+        }
     }
 
     /**
-     * Setup button event handlers
-     * 
-     * @return void
-     */
-    private function setupButtonHandlers(): void
-    {
-        Button::onClicked($this->saveButton, function($button) {
-            $this->saveResults();
-        });
-
-        Button::onClicked($this->clearButton, function($button) {
-            $this->clearOutput();
-        });
-    }
-
-    /**
-     * Update the metrics display with test results
+     * Display test results
      * 
      * @param TestResult $result
-     * @return void
      */
-    public function updateMetrics(TestResult $result): void
+    public function displayResults(TestResult $result): void
     {
-        $this->currentResult = $result;
-
-        // Update metric labels
-        Label::setText($this->requestsPerSecLabel, 
-            sprintf('Requests/sec: %.2f', $result->requestsPerSecond));
-        
-        Label::setText($this->totalRequestsLabel, 
-            sprintf('Total requests: %d', $result->totalRequests));
-        
-        Label::setText($this->successRateLabel, 
-            sprintf('Success rate: %.2f%%', $result->successRate));
-        
-        Label::setText($this->performanceLabel, 
-            sprintf('Performance: %s', $result->getPerformanceRating()));
+        $this->lastResult = $result;
 
         // Update status
-        if ($result->isSuccessful()) {
-            Label::setText($this->statusLabel, '✓ Test completed successfully');
-        } else {
-            Label::setText($this->statusLabel, 
-                sprintf('⚠ Test completed with %d failures', $result->failedRequests));
+        $this->updateStatus("Test completed");
+
+        // Update metrics
+        if ($this->requestsPerSecLabel !== null) {
+            Label::setText($this->requestsPerSecLabel, number_format($result->requestsPerSecond, 2));
+        }
+
+        if ($this->totalRequestsLabel !== null) {
+            Label::setText($this->totalRequestsLabel, number_format($result->totalRequests));
+        }
+
+        if ($this->successRateLabel !== null) {
+            Label::setText($this->successRateLabel, number_format($result->successRate, 2) . '%');
+        }
+
+        if ($this->performanceLabel !== null) {
+            $performance = $this->calculatePerformanceRating($result);
+            Label::setText($this->performanceLabel, $performance);
         }
 
         // Enable save button
-        Control::enable($this->saveButton);
+        if ($this->saveButton !== null) {
+            Control::enable($this->saveButton);
+        }
     }
 
     /**
-     * Append output text to the display area
+     * Append output text (for real-time streaming)
      * 
      * @param string $output
-     * @return void
      */
     public function appendOutput(string $output): void
     {
-        MultilineEntry::append($this->outputArea, $output);
+        $this->currentOutput .= $output;
+        
+        if ($this->outputEntry !== null) {
+            MultilineEntry::setText($this->outputEntry, $this->currentOutput);
+            
+            // Scroll to bottom (if supported by libui)
+            // Note: libui may not support automatic scrolling to bottom
+        }
     }
 
     /**
-     * Set the complete output text
+     * Set output text (replace all content)
      * 
      * @param string $output
-     * @return void
      */
     public function setOutput(string $output): void
     {
-        MultilineEntry::setText($this->outputArea, $output);
+        $this->currentOutput = $output;
+        
+        if ($this->outputEntry !== null) {
+            MultilineEntry::setText($this->outputEntry, $output);
+            
+            // Force a refresh of the control
+            // This might help with display issues in some cases
+            // Control::show($this->outputEntry); // Uncomment if needed
+        }
     }
 
     /**
-     * Clear the output display
-     * 
-     * @return void
+     * Clear output and reset metrics
      */
     public function clearOutput(): void
     {
-        MultilineEntry::setText($this->outputArea, '');
-        $this->resetDisplay();
+        $this->currentOutput = "";
+        $this->lastResult = null;
+
+        // Clear output
+        if ($this->outputEntry !== null) {
+            MultilineEntry::setText($this->outputEntry, "Test output will appear here...");
+        }
+
+        // Reset metrics
+        if ($this->requestsPerSecLabel !== null) {
+            Label::setText($this->requestsPerSecLabel, "--");
+        }
+
+        if ($this->totalRequestsLabel !== null) {
+            Label::setText($this->totalRequestsLabel, "--");
+        }
+
+        if ($this->successRateLabel !== null) {
+            Label::setText($this->successRateLabel, "--");
+        }
+
+        if ($this->performanceLabel !== null) {
+            Label::setText($this->performanceLabel, "--");
+        }
+
+        // Disable save button
+        if ($this->saveButton !== null) {
+            Control::disable($this->saveButton);
+        }
+
+        // Update status
+        $this->updateStatus("Ready to run test");
     }
 
     /**
-     * Reset the display to initial state
-     * 
-     * @return void
+     * Show test running status
      */
-    public function resetDisplay(): void
+    public function showTestRunning(): void
     {
-        $this->currentResult = null;
-        $this->isTestRunning = false;
-
-        // Reset metric labels
-        Label::setText($this->statusLabel, 'Ready to run test');
-        Label::setText($this->requestsPerSecLabel, 'Requests/sec: --');
-        Label::setText($this->totalRequestsLabel, 'Total requests: --');
-        Label::setText($this->successRateLabel, 'Success rate: --');
-        Label::setText($this->performanceLabel, 'Performance: --');
-
-        // Hide progress bar and disable save button
-        Control::hide($this->progressBar);
-        Control::disable($this->saveButton);
+        $this->updateStatus("Test running...");
+        $this->clearOutput();
+        $this->setOutput("Starting test...\n\nTest is running. Please wait for completion.\nNote: oha tool outputs results only after completion.\n");
     }
 
     /**
-     * Show test is starting
-     * 
-     * @return void
-     */
-    public function showTestStarting(): void
-    {
-        $this->isTestRunning = true;
-        Label::setText($this->statusLabel, '⏳ Test is running...');
-        Control::show($this->progressBar);
-        ProgressBar::setValue($this->progressBar, -1); // Indeterminate progress
-        MultilineEntry::setText($this->outputArea, 'Starting test...\n');
-    }
-
-    /**
-     * Show test has stopped
-     * 
-     * @return void
+     * Show test stopped status
      */
     public function showTestStopped(): void
     {
-        $this->isTestRunning = false;
-        Label::setText($this->statusLabel, '⏹ Test stopped');
-        Control::hide($this->progressBar);
+        $this->updateStatus("Test stopped");
+        $this->appendOutput("\n--- Test stopped by user ---\n");
     }
 
     /**
-     * Show test completion
-     * 
-     * @return void
-     */
-    public function showTestCompleted(): void
-    {
-        $this->isTestRunning = false;
-        Control::hide($this->progressBar);
-        
-        if ($this->currentResult === null) {
-            Label::setText($this->statusLabel, '✓ Test completed');
-        }
-    }
-
-    /**
-     * Show test error
+     * Show error message
      * 
      * @param string $error
-     * @return void
      */
-    public function showTestError(string $error): void
+    public function showError(string $error): void
     {
-        $this->isTestRunning = false;
-        Label::setText($this->statusLabel, '❌ Test failed: ' . $error);
-        Control::hide($this->progressBar);
-        MultilineEntry::append($this->outputArea, "\nError: " . $error . "\n");
+        $this->updateStatus("Error: " . $error);
+        $this->setOutput("Error: " . $error . "\n");
     }
 
     /**
-     * Update progress during test execution
+     * Calculate performance rating based on results
      * 
-     * @param int $progress Progress percentage (0-100, or -1 for indeterminate)
-     * @return void
+     * @param TestResult $result
+     * @return string
      */
-    public function updateProgress(int $progress): void
+    private function calculatePerformanceRating(TestResult $result): string
     {
-        if ($this->progressBar !== null) {
-            if ($progress === -1) {
-                // Indeterminate progress (pulsing animation)
-                ProgressBar::setValue($this->progressBar, -1);
-            } else {
-                // Specific progress percentage
-                ProgressBar::setValue($this->progressBar, max(0, min(100, $progress)));
-            }
+        $rps = $result->requestsPerSecond;
+        $successRate = $result->successRate;
+
+        // Simple performance rating based on requests per second and success rate
+        if ($successRate < 95) {
+            return "Poor (Low Success Rate)";
+        } elseif ($rps < 10) {
+            return "Poor";
+        } elseif ($rps < 50) {
+            return "Fair";
+        } elseif ($rps < 100) {
+            return "Good";
+        } elseif ($rps < 500) {
+            return "Very Good";
+        } else {
+            return "Excellent";
         }
     }
 
     /**
-     * Save the current test results
-     * 
-     * @return void
+     * Handle save results button click
      */
-    private function saveResults(): void
+    private function onSaveResults(): void
     {
-        if ($this->currentResult === null) {
+        if ($this->lastResult === null) {
             return;
         }
 
-        if ($this->onSaveResultsCallback) {
-            ($this->onSaveResultsCallback)($this->currentResult);
+        try {
+            // Generate filename with timestamp
+            $timestamp = date('Y-m-d_H-i-s');
+            $filename = "oha_results_{$timestamp}.txt";
+
+            // Create results content
+            $content = $this->formatResultsForSave($this->lastResult);
+
+            // Save to file (in a real implementation, you might want to show a file dialog)
+            $saved = file_put_contents($filename, $content);
+
+            if ($saved !== false) {
+                $this->updateStatus("Results saved to: " . $filename);
+            } else {
+                $this->updateStatus("Failed to save results");
+            }
+
+        } catch (Throwable $e) {
+            $this->updateStatus("Error saving results: " . $e->getMessage());
         }
     }
 
     /**
-     * Set callback for save results event
+     * Format results for saving to file
      * 
-     * @param callable $callback
-     * @return void
+     * @param TestResult $result
+     * @return string
      */
-    public function setOnSaveResultsCallback(callable $callback): void
+    private function formatResultsForSave(TestResult $result): string
     {
-        $this->onSaveResultsCallback = $callback;
+        $content = [];
+        $content[] = "OHA GUI Tool - Test Results";
+        $content[] = "Generated: " . date('Y-m-d H:i:s');
+        $content[] = str_repeat("=", 50);
+        $content[] = "";
+        $content[] = "METRICS:";
+        $content[] = "Requests per second: " . number_format($result->requestsPerSecond, 2);
+        $content[] = "Total requests: " . number_format($result->totalRequests);
+        $content[] = "Failed requests: " . number_format($result->failedRequests);
+        $content[] = "Success rate: " . number_format($result->successRate, 2) . '%';
+        $content[] = "Performance: " . $this->calculatePerformanceRating($result);
+        $content[] = "";
+        $content[] = "RAW OUTPUT:";
+        $content[] = str_repeat("-", 50);
+        $content[] = $result->rawOutput;
+
+        return implode("\n", $content);
     }
 
     /**
-     * Get the group control
-     * 
-     * @return CData
-     */
-    public function getControl(): CData
-    {
-        return $this->group;
-    }
-
-    /**
-     * Get the current test result
-     * 
-     * @return TestResult|null
-     */
-    public function getCurrentResult(): ?TestResult
-    {
-        return $this->currentResult;
-    }
-
-    /**
-     * Check if test is currently running
-     * 
-     * @return bool
-     */
-    public function isTestRunning(): bool
-    {
-        return $this->isTestRunning;
-    }
-
-    /**
-     * Get the current output text
+     * Get current output text
      * 
      * @return string
      */
-    public function getOutput(): string
+    public function getCurrentOutput(): string
     {
-        return MultilineEntry::text($this->outputArea);
+        return $this->currentOutput;
     }
 
     /**
-     * Display error message in the results area
+     * Get last test result
      * 
-     * @param string $errorMessage
-     * @return void
+     * @return TestResult|null
      */
-    public function displayError(string $errorMessage): void
+    public function getLastResult(): ?TestResult
     {
-        $timestamp = date('Y-m-d H:i:s');
-        $formattedError = "\n" . str_repeat("=", 50) . "\n";
-        $formattedError .= "❌ ERROR - {$timestamp}\n";
-        $formattedError .= str_repeat("=", 50) . "\n";
-        $formattedError .= $errorMessage . "\n";
-        $formattedError .= str_repeat("=", 50) . "\n\n";
-        
-        $this->appendOutput($formattedError);
-        $this->showTestError($errorMessage);
+        return $this->lastResult;
     }
 
     /**
-     * Clean up resources and libui controls
+     * Check if results are available
      * 
-     * @return void
+     * @return bool
+     */
+    public function hasResults(): bool
+    {
+        return $this->lastResult !== null;
+    }
+
+    /**
+     * Cleanup resources
      */
     public function cleanup(): void
     {
         try {
-            // Clear callbacks to prevent memory leaks
-            $this->onSaveResultsCallback = null;
+            // Clear references to libui controls
+            $this->resultsGroup = null;
+            $this->vbox = null;
+            $this->statusLabel = null;
+            $this->metricsHBox = null;
+            $this->requestsPerSecLabel = null;
+            $this->totalRequestsLabel = null;
+            $this->successRateLabel = null;
+            $this->performanceLabel = null;
+            $this->outputGroup = null;
+            $this->outputEntry = null;
+            $this->saveButton = null;
             
-            // Clear result data
-            $this->currentResult = null;
-            $this->isTestRunning = false;
+            // Clear data
+            $this->currentOutput = "";
+            $this->lastResult = null;
             
-            // Note: libui controls are automatically cleaned up when parent is destroyed
-            // We don't need to explicitly destroy individual controls
-            
-        } catch (Exception $e) {
-            error_log("Error during ResultsDisplay cleanup: " . $e->getMessage());
+        } catch (Throwable $e) {
+            error_log("ResultsDisplay cleanup error: " . $e->getMessage());
         }
     }
 }

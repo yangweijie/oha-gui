@@ -4,18 +4,25 @@ namespace OhaGui\Core;
 
 use OhaGui\Models\TestConfiguration;
 use OhaGui\Utils\FileManager;
-use DateTime;
-use Exception;
+use OhaGui\Core\ConfigurationValidator;
+use RuntimeException;
+use InvalidArgumentException;
 
 /**
- * Configuration Manager for handling test configuration CRUD operations
- * Manages saving, loading, listing, and deleting test configurations
+ * Configuration Manager class for handling CRUD operations on test configurations
+ * Manages saving, loading, listing, and deleting configurations stored as JSON files
  */
 class ConfigurationManager
 {
     private FileManager $fileManager;
     private ConfigurationValidator $validator;
 
+    /**
+     * Constructor
+     * 
+     * @param FileManager|null $fileManager Optional custom file manager
+     * @param ConfigurationValidator|null $validator Optional custom validator
+     */
     public function __construct(?FileManager $fileManager = null, ?ConfigurationValidator $validator = null)
     {
         $this->fileManager = $fileManager ?? new FileManager();
@@ -23,146 +30,215 @@ class ConfigurationManager
     }
 
     /**
-     * Save a test configuration to JSON file
+     * Save a configuration to a JSON file
      * 
-     * @param string $name Configuration name
+     * @param string $name Configuration name (used as filename)
      * @param TestConfiguration $config Configuration to save
-     * @return bool True on success, false on failure
+     * @return bool True on success
+     * @throws RuntimeException If save operation fails
+     * @throws InvalidArgumentException If configuration is invalid
      */
     public function saveConfiguration(string $name, TestConfiguration $config): bool
     {
+        // Validate configuration name
+        if (empty(trim($name))) {
+            throw new InvalidArgumentException('Configuration name cannot be empty');
+        }
+
+        // Set the name in the configuration object
+        $config->name = trim($name);
+        
+        // Validate the configuration using both model validation and validator
+        $modelErrors = $config->validate();
+        $validatorErrors = $this->validator->validateConfiguration($config->toArray());
+        $allErrors = array_merge($modelErrors, $validatorErrors);
+        
+        if (!empty($allErrors)) {
+            throw new InvalidArgumentException('Configuration validation failed: ' . implode(', ', array_unique($allErrors)));
+        }
+
+        // Update the updatedAt timestamp
+        $config->touch();
+
         try {
-            // Validate configuration before saving
-            $validationErrors = $config->validate();
-            if (!empty($validationErrors)) {
-                error_log("ConfigurationManager::saveConfiguration validation failed: " . implode(', ', $validationErrors));
-                return false;
-            }
-
-            // Update the configuration name and timestamp
-            $config->name = $name;
-            $config->updatedAt = new DateTime();
-
-            // Convert to array and save
-            $data = $config->toArray();
+            // Convert configuration to array for JSON storage
+            $configData = $config->toArray();
             
-            return $this->fileManager->saveConfigFile($name, $data);
-        } catch (Exception $e) {
-            error_log("ConfigurationManager::saveConfiguration error: " . $e->getMessage());
-            return false;
+            // Check file system health before attempting save
+            $healthCheck = $this->fileManager->checkFileSystemHealth();
+            if (!$healthCheck['overall_health']) {
+                $issues = implode('; ', $healthCheck['issues']);
+                throw new RuntimeException("File system issues detected: {$issues}");
+            }
+            
+            // Create backup if file already exists
+            $backupPath = null;
+            if ($this->configurationExists($name)) {
+                try {
+                    $backupPath = $this->backupConfiguration($name);
+                } catch (RuntimeException $backupError) {
+                    // Log backup failure but continue with save
+                    error_log("Warning: Failed to create backup for '{$name}': " . $backupError->getMessage());
+                }
+            }
+            
+            // Save to file using FileManager
+            $result = $this->fileManager->saveConfigFile($name, $configData);
+            
+            // Clean up backup if save was successful and backup was created
+            if ($result && $backupPath && file_exists($backupPath)) {
+                @unlink($backupPath);
+            }
+            
+            return $result;
+            
+        } catch (RuntimeException $e) {
+            // Try to recover from common file system errors
+            if (strpos($e->getMessage(), 'permission') !== false || 
+                strpos($e->getMessage(), 'writable') !== false) {
+                
+                // Attempt recovery and retry once
+                if ($this->fileManager->attemptRecovery($name, 'write')) {
+                    try {
+                        return $this->fileManager->saveConfigFile($name, $config->toArray());
+                    } catch (RuntimeException $retryException) {
+                        throw new RuntimeException(
+                            "Failed to save configuration '{$name}' even after recovery attempt: " . 
+                            $retryException->getMessage()
+                        );
+                    }
+                }
+            }
+            
+            throw new RuntimeException("Failed to save configuration '{$name}': " . $e->getMessage());
         }
     }
 
     /**
-     * Load a test configuration from JSON file
+     * Load a configuration from a JSON file
      * 
-     * @param string $name Configuration name
-     * @return TestConfiguration|null Configuration object or null if not found/invalid
+     * @param string $name Configuration name (filename without extension)
+     * @return TestConfiguration|null Configuration object or null if not found
+     * @throws RuntimeException If file exists but cannot be loaded or parsed
+     * @throws InvalidArgumentException If loaded configuration is invalid
      */
     public function loadConfiguration(string $name): ?TestConfiguration
     {
+        if (empty(trim($name))) {
+            throw new InvalidArgumentException('Configuration name cannot be empty');
+        }
+
         try {
-            $data = $this->fileManager->loadConfigFile($name);
+            // Load configuration data from file
+            $configData = $this->fileManager->loadConfigFile($name);
             
-            if ($data === null) {
-                return null;
+            if ($configData === null) {
+                return null; // File doesn't exist
             }
 
-            // Validate the loaded data structure
-            $validationErrors = $this->getValidationErrors($data);
-            if (!empty($validationErrors)) {
-                error_log("ConfigurationManager::loadConfiguration invalid data structure for: {$name}. Errors: " . implode(', ', $validationErrors));
-                return null;
+            // Validate configuration file structure first
+            $fileErrors = $this->validator->validateConfigurationFile(json_encode($configData));
+            if (!empty($fileErrors)) {
+                throw new InvalidArgumentException("Configuration file '{$name}' is invalid: " . implode(', ', $fileErrors));
             }
 
-            $config = TestConfiguration::fromArray($data);
+            // Sanitize and create configuration object from array
+            $sanitizedData = $this->validator->sanitizeConfiguration($configData);
+            $config = TestConfiguration::fromArray($sanitizedData);
             
-            // Validate the loaded configuration
+            // Final validation of the loaded configuration
             $validationErrors = $config->validate();
             if (!empty($validationErrors)) {
-                error_log("ConfigurationManager::loadConfiguration validation failed for {$name}: " . implode(', ', $validationErrors));
-                return null;
+                throw new InvalidArgumentException("Loaded configuration '{$name}' is invalid: " . implode(', ', $validationErrors));
             }
 
             return $config;
-        } catch (Exception $e) {
-            error_log("ConfigurationManager::loadConfiguration error: " . $e->getMessage());
-            return null;
+            
+        } catch (RuntimeException $e) {
+            // Try to recover from read permission issues
+            if (strpos($e->getMessage(), 'permission') !== false || 
+                strpos($e->getMessage(), 'readable') !== false) {
+                
+                // Attempt recovery and retry once
+                if ($this->fileManager->attemptRecovery($name, 'read')) {
+                    try {
+                        $configData = $this->fileManager->loadConfigFile($name);
+                        if ($configData !== null) {
+                            $sanitizedData = $this->validator->sanitizeConfiguration($configData);
+                            return TestConfiguration::fromArray($sanitizedData);
+                        }
+                    } catch (RuntimeException $retryException) {
+                        throw new RuntimeException(
+                            "Failed to load configuration '{$name}' even after recovery attempt: " . 
+                            $retryException->getMessage()
+                        );
+                    }
+                }
+            }
+            
+            // Check if this is a corrupted file that we can potentially recover
+            if (strpos($e->getMessage(), 'JSON') !== false || strpos($e->getMessage(), 'parse') !== false) {
+                throw new RuntimeException(
+                    "Configuration file '{$name}' appears to be corrupted: " . $e->getMessage() . 
+                    ". You may need to recreate this configuration or restore from a backup."
+                );
+            }
+            
+            throw new RuntimeException("Failed to load configuration '{$name}': " . $e->getMessage());
         }
     }
 
     /**
-     * List all available configurations with metadata
+     * List all available configurations
      * 
-     * @return array Array of configuration metadata
+     * @return array Array of configuration names
      */
     public function listConfigurations(): array
     {
         try {
-            $files = $this->fileManager->listConfigFiles();
-            $configurations = [];
-
-            foreach ($files as $file) {
-                // Try to load basic info from each configuration
-                $data = $this->fileManager->loadConfigFile($file['name']);
+            return $this->fileManager->listConfigFiles();
+        } catch (RuntimeException $e) {
+            // Log the error for debugging but don't crash the application
+            error_log("Warning: Failed to list configuration files: " . $e->getMessage());
+            
+            // Try to recover from permission issues
+            if (strpos($e->getMessage(), 'permission') !== false || 
+                strpos($e->getMessage(), 'readable') !== false) {
                 
-                if ($data !== null && is_array($data)) {
-                    $configurations[] = [
-                        'name' => $file['name'],
-                        'url' => $data['url'] ?? '',
-                        'method' => $data['method'] ?? 'GET',
-                        'concurrentConnections' => $data['concurrentConnections'] ?? 0,
-                        'duration' => $data['duration'] ?? 0,
-                        'timeout' => $data['timeout'] ?? 0,
-                        'headers' => $data['headers'] ?? [],
-                        'body' => $data['body'] ?? '',
-                        'createdAt' => $data['createdAt'] ?? '',
-                        'updatedAt' => $data['updatedAt'] ?? '',
-                        'fileSize' => $file['size'],
-                        'fileModified' => $file['modified'],
-                        'isValid' => true
-                    ];
-                } else {
-                    // Include invalid configurations with error flag
-                    $configurations[] = [
-                        'name' => $file['name'],
-                        'url' => '',
-                        'method' => '',
-                        'concurrentConnections' => 0,
-                        'duration' => 0,
-                        'timeout' => 0,
-                        'headers' => [],
-                        'body' => '',
-                        'createdAt' => '',
-                        'updatedAt' => '',
-                        'fileSize' => $file['size'],
-                        'fileModified' => $file['modified'],
-                        'isValid' => false,
-                        'error' => 'Invalid configuration format'
-                    ];
+                // Attempt recovery and try again
+                if ($this->fileManager->attemptRecovery('', 'read')) {
+                    try {
+                        return $this->fileManager->listConfigFiles();
+                    } catch (RuntimeException $retryException) {
+                        error_log("Recovery attempt failed: " . $retryException->getMessage());
+                    }
                 }
             }
-
-            return $configurations;
-        } catch (Exception $e) {
-            error_log("ConfigurationManager::listConfigurations error: " . $e->getMessage());
+            
+            // If we can't list files, return empty array rather than throwing
+            // This allows the application to continue working even if there are permission issues
             return [];
         }
     }
 
     /**
-     * Delete a configuration
+     * Delete a configuration file
      * 
-     * @param string $name Configuration name to delete
-     * @return bool True on success, false on failure
+     * @param string $name Configuration name (filename without extension)
+     * @return bool True on success
+     * @throws RuntimeException If deletion fails
+     * @throws InvalidArgumentException If name is invalid
      */
     public function deleteConfiguration(string $name): bool
     {
+        if (empty(trim($name))) {
+            throw new InvalidArgumentException('Configuration name cannot be empty');
+        }
+
         try {
             return $this->fileManager->deleteConfigFile($name);
-        } catch (Exception $e) {
-            error_log("ConfigurationManager::deleteConfiguration error: " . $e->getMessage());
-            return false;
+        } catch (RuntimeException $e) {
+            throw new RuntimeException("Failed to delete configuration '{$name}': " . $e->getMessage());
         }
     }
 
@@ -170,11 +246,178 @@ class ConfigurationManager
      * Check if a configuration exists
      * 
      * @param string $name Configuration name
-     * @return bool True if exists, false otherwise
+     * @return bool True if configuration exists
      */
     public function configurationExists(string $name): bool
     {
+        if (empty(trim($name))) {
+            return false;
+        }
+
         return $this->fileManager->configFileExists($name);
+    }
+
+    /**
+     * Get configuration file path
+     * 
+     * @param string $name Configuration name
+     * @return string Full path to configuration file
+     */
+    public function getConfigurationPath(string $name): string
+    {
+        return $this->fileManager->getConfigFilePath($name);
+    }
+
+    /**
+     * Create a backup of a configuration before modifying it
+     * 
+     * @param string $name Configuration name
+     * @return string|null Path to backup file or null if original doesn't exist
+     * @throws RuntimeException If backup cannot be created
+     */
+    public function backupConfiguration(string $name): ?string
+    {
+        if (empty(trim($name))) {
+            throw new InvalidArgumentException('Configuration name cannot be empty');
+        }
+
+        try {
+            return $this->fileManager->backupConfigFile($name);
+        } catch (RuntimeException $e) {
+            throw new RuntimeException("Failed to backup configuration '{$name}': " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get configuration metadata (file info)
+     * 
+     * @param string $name Configuration name
+     * @return array|null Array with metadata or null if file doesn't exist
+     */
+    public function getConfigurationMetadata(string $name): ?array
+    {
+        if (empty(trim($name))) {
+            return null;
+        }
+
+        if (!$this->configurationExists($name)) {
+            return null;
+        }
+
+        $modTime = $this->fileManager->getConfigFileModificationTime($name);
+        $size = $this->fileManager->getConfigFileSize($name);
+
+        return [
+            'name' => $name,
+            'path' => $this->getConfigurationPath($name),
+            'modified_time' => $modTime,
+            'size' => $size,
+            'exists' => true
+        ];
+    }
+
+    /**
+     * Validate a configuration file without loading it completely
+     * 
+     * @param string $name Configuration name
+     * @return bool True if file exists and contains valid JSON
+     */
+    public function validateConfigurationFile(string $name): bool
+    {
+        if (empty(trim($name))) {
+            return false;
+        }
+
+        return $this->fileManager->validateConfigFile($name);
+    }
+
+    /**
+     * Get a summary of all configurations with basic info
+     * 
+     * @return array Array of configuration summaries
+     */
+    public function getConfigurationSummaries(): array
+    {
+        $configurations = $this->listConfigurations();
+        $summaries = [];
+
+        foreach ($configurations as $name) {
+            try {
+                $config = $this->loadConfiguration($name);
+                if ($config !== null) {
+                    $summaries[] = [
+                        'name' => $name,
+                        'url' => $config->url,
+                        'method' => $config->method,
+                        'connections' => $config->concurrentConnections,
+                        'duration' => $config->duration,
+                        'created_at' => $config->createdAt->format('Y-m-d H:i:s'),
+                        'updated_at' => $config->updatedAt->format('Y-m-d H:i:s'),
+                        'summary' => $this->generateConfigurationSummary($config)
+                    ];
+                }
+            } catch (RuntimeException | InvalidArgumentException $e) {
+                // Skip invalid configurations but include them in the list with error info
+                $summaries[] = [
+                    'name' => $name,
+                    'error' => 'Invalid configuration: ' . $e->getMessage(),
+                    'summary' => 'Error loading configuration'
+                ];
+            }
+        }
+
+        return $summaries;
+    }
+
+    /**
+     * Generate a human-readable summary of a configuration
+     * 
+     * @param TestConfiguration $config
+     * @return string Configuration summary
+     */
+    public function generateConfigurationSummary(TestConfiguration $config): string
+    {
+        $url = strlen($config->url) > 50 ? substr($config->url, 0, 47) . '...' : $config->url;
+        
+        return sprintf(
+            '%s %s (%d conn, %ds)',
+            strtoupper($config->method),
+            $url,
+            $config->concurrentConnections,
+            $config->duration
+        );
+    }
+
+    /**
+     * Import configuration from array data (useful for importing from other sources)
+     * 
+     * @param string $name Configuration name
+     * @param array $data Configuration data array
+     * @return bool True on success
+     * @throws RuntimeException If import fails
+     * @throws InvalidArgumentException If data is invalid
+     */
+    public function importConfiguration(string $name, array $data): bool
+    {
+        try {
+            $config = TestConfiguration::fromArray($data);
+            return $this->saveConfiguration($name, $config);
+        } catch (RuntimeException | InvalidArgumentException $e) {
+            throw new RuntimeException("Failed to import configuration '{$name}': " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Export configuration to array format
+     * 
+     * @param string $name Configuration name
+     * @return array|null Configuration data array or null if not found
+     * @throws RuntimeException If export fails
+     */
+    public function exportConfiguration(string $name): ?array
+    {
+        $config = $this->loadConfiguration($name);
+        return $config ? $config->toArray() : null;
     }
 
     /**
@@ -182,159 +425,113 @@ class ConfigurationManager
      * 
      * @param string $sourceName Source configuration name
      * @param string $targetName Target configuration name
-     * @return bool True on success, false on failure
+     * @return bool True on success
+     * @throws RuntimeException If duplication fails
+     * @throws InvalidArgumentException If source doesn't exist or target name is invalid
      */
     public function duplicateConfiguration(string $sourceName, string $targetName): bool
     {
-        try {
-            $config = $this->loadConfiguration($sourceName);
-            
-            if ($config === null) {
-                return false;
+        $sourceConfig = $this->loadConfiguration($sourceName);
+        
+        if ($sourceConfig === null) {
+            throw new InvalidArgumentException("Source configuration '{$sourceName}' does not exist");
+        }
+
+        // Create a copy with updated timestamps
+        $targetConfig = TestConfiguration::fromArray($sourceConfig->toArray());
+        $targetConfig->name = $targetName;
+        $targetConfig->createdAt = new \DateTime();
+        $targetConfig->updatedAt = new \DateTime();
+
+        return $this->saveConfiguration($targetName, $targetConfig);
+    }
+
+    /**
+     * Get storage information
+     * 
+     * @return array Storage statistics
+     */
+    public function getStorageInfo(): array
+    {
+        $diskInfo = $this->fileManager->getDiskSpaceInfo();
+        $configurations = $this->listConfigurations();
+        
+        $totalSize = 0;
+        foreach ($configurations as $name) {
+            $size = $this->fileManager->getConfigFileSize($name);
+            if ($size !== null) {
+                $totalSize += $size;
             }
-
-            // Update timestamps for the duplicate
-            $config->createdAt = new DateTime();
-            $config->updatedAt = new DateTime();
-
-            return $this->saveConfiguration($targetName, $config);
-        } catch (Exception $e) {
-            error_log("ConfigurationManager::duplicateConfiguration error: " . $e->getMessage());
-            return false;
         }
+
+        return [
+            'configuration_count' => count($configurations),
+            'total_size' => $totalSize,
+            'config_directory' => $this->fileManager->getConfigDirectory(),
+            'disk_free' => $diskInfo['free'],
+            'disk_total' => $diskInfo['total'],
+            'disk_used' => $diskInfo['used']
+        ];
     }
 
     /**
-     * Backup a configuration
+     * Get comprehensive file system health information
      * 
-     * @param string $name Configuration name to backup
-     * @return bool True on success, false on failure
+     * @return array Health check results with recommendations
      */
-    public function backupConfiguration(string $name): bool
+    public function getFileSystemHealth(): array
     {
-        try {
-            return $this->fileManager->backupConfigFile($name);
-        } catch (Exception $e) {
-            error_log("ConfigurationManager::backupConfiguration error: " . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Get configuration file information
-     * 
-     * @param string $name Configuration name
-     * @return array|null File information or null if not found
-     */
-    public function getConfigurationInfo(string $name): ?array
-    {
-        return $this->fileManager->getConfigFileInfo($name);
-    }
-
-    /**
-     * Import configuration from JSON string
-     * 
-     * @param string $name Configuration name
-     * @param string $jsonContent JSON content to import
-     * @return bool True on success, false on failure
-     */
-    public function importConfiguration(string $name, string $jsonContent): bool
-    {
-        try {
-            // Validate JSON format using the validator
-            $validationErrors = $this->validator->validateJsonContent($jsonContent);
-            if (!empty($validationErrors)) {
-                error_log("ConfigurationManager::importConfiguration JSON validation failed: " . implode(', ', $validationErrors));
-                return false;
+        $health = $this->fileManager->checkFileSystemHealth();
+        $storageInfo = $this->getStorageInfo();
+        
+        // Add configuration-specific health checks
+        $configurations = $this->listConfigurations();
+        $corruptedConfigs = [];
+        $validConfigs = 0;
+        
+        foreach ($configurations as $name) {
+            try {
+                $config = $this->loadConfiguration($name);
+                if ($config !== null) {
+                    $validConfigs++;
+                }
+            } catch (RuntimeException | InvalidArgumentException $e) {
+                $corruptedConfigs[] = [
+                    'name' => $name,
+                    'error' => $e->getMessage()
+                ];
             }
-
-            $data = json_decode($jsonContent, true);
-            $config = TestConfiguration::fromArray($data);
-            
-            return $this->saveConfiguration($name, $config);
-        } catch (Exception $e) {
-            error_log("ConfigurationManager::importConfiguration error: " . $e->getMessage());
-            return false;
         }
-    }
-
-    /**
-     * Export configuration to JSON string
-     * 
-     * @param string $name Configuration name
-     * @return string|null JSON string or null on failure
-     */
-    public function exportConfiguration(string $name): ?string
-    {
-        try {
-            $config = $this->loadConfiguration($name);
-            
-            if ($config === null) {
-                return null;
-            }
-
-            $data = $config->toArray();
-            $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-            
-            return $json !== false ? $json : null;
-        } catch (Exception $e) {
-            error_log("ConfigurationManager::exportConfiguration error: " . $e->getMessage());
-            return null;
+        
+        $health['configuration_health'] = [
+            'total_configurations' => count($configurations),
+            'valid_configurations' => $validConfigs,
+            'corrupted_configurations' => count($corruptedConfigs),
+            'corrupted_details' => $corruptedConfigs
+        ];
+        
+        // Add recommendations
+        $recommendations = [];
+        
+        if (!$health['disk_space_available']) {
+            $recommendations[] = 'Free up disk space to ensure configurations can be saved';
         }
-    }
-
-    /**
-     * Get the configuration directory path
-     * 
-     * @return string Configuration directory path
-     */
-    public function getConfigurationDirectory(): string
-    {
-        return $this->fileManager->getConfigDirectory();
-    }
-
-    /**
-     * Validate configuration data structure using the validator
-     * 
-     * @param array $data Configuration data to validate
-     * @return bool True if valid structure, false otherwise
-     */
-    private function validateConfigurationData(array $data): bool
-    {
-        $errors = $this->validator->validateConfigurationData($data);
-        return empty($errors);
-    }
-
-    /**
-     * Get detailed validation errors for configuration data
-     * 
-     * @param array $data Configuration data to validate
-     * @return array Array of validation errors
-     */
-    public function getValidationErrors(array $data): array
-    {
-        return $this->validator->validateConfigurationData($data);
-    }
-
-    /**
-     * Validate configuration file and get detailed report
-     * 
-     * @param string $name Configuration name
-     * @return array Validation result with errors and warnings
-     */
-    public function validateConfigurationFile(string $name): array
-    {
-        $filePath = $this->fileManager->getConfigFilePath($name);
-        return $this->validator->validateConfigurationFile($filePath);
-    }
-
-    /**
-     * Get the JSON schema for configuration files
-     * 
-     * @return array JSON schema array
-     */
-    public function getConfigurationSchema(): array
-    {
-        return $this->validator->getConfigurationSchema();
+        
+        if (!$health['permissions_ok']) {
+            $recommendations[] = 'Fix directory permissions to allow reading and writing configuration files';
+        }
+        
+        if (!empty($corruptedConfigs)) {
+            $recommendations[] = 'Recreate or restore corrupted configuration files from backups';
+        }
+        
+        if ($storageInfo['disk_free'] < 10 * 1024 * 1024) { // Less than 10MB
+            $recommendations[] = 'Consider cleaning up old configuration files or moving to a location with more space';
+        }
+        
+        $health['recommendations'] = $recommendations;
+        $health['storage_info'] = $storageInfo;
+        
+        return $health;
     }
 }

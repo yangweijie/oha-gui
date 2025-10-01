@@ -4,6 +4,7 @@ namespace OhaGui\Utils;
 
 /**
  * Cross-platform utility class for OS detection and path handling
+ * Handles differences between Windows, macOS, and Linux operating systems
  */
 class CrossPlatform
 {
@@ -14,6 +15,8 @@ class CrossPlatform
 
     /**
      * Detect the current operating system
+     * 
+     * @return string One of the OS constants
      */
     public static function getOperatingSystem(): string
     {
@@ -32,6 +35,8 @@ class CrossPlatform
 
     /**
      * Check if running on Windows
+     * 
+     * @return bool
      */
     public static function isWindows(): bool
     {
@@ -40,6 +45,8 @@ class CrossPlatform
 
     /**
      * Check if running on macOS
+     * 
+     * @return bool
      */
     public static function isMacOS(): bool
     {
@@ -48,6 +55,8 @@ class CrossPlatform
 
     /**
      * Check if running on Linux
+     * 
+     * @return bool
      */
     public static function isLinux(): bool
     {
@@ -56,6 +65,8 @@ class CrossPlatform
 
     /**
      * Get the appropriate directory separator for the current OS
+     * 
+     * @return string
      */
     public static function getDirectorySeparator(): string
     {
@@ -63,24 +74,41 @@ class CrossPlatform
     }
 
     /**
-     * Normalize path separators for the current operating system
+     * Normalize a file path for the current operating system
+     * 
+     * @param string $path
+     * @return string
      */
     public static function normalizePath(string $path): string
     {
-        return str_replace(['/', '\\'], self::getDirectorySeparator(), $path);
+        // Replace forward slashes and backslashes with the appropriate separator
+        $normalized = str_replace(['/', '\\'], self::getDirectorySeparator(), $path);
+        
+        // Remove duplicate separators
+        $separator = self::getDirectorySeparator();
+        $normalized = preg_replace('#' . preg_quote($separator) . '+#', $separator, $normalized);
+        
+        return $normalized;
     }
 
     /**
-     * Join path components using the appropriate separator
+     * Join path components using the appropriate directory separator
+     * 
+     * @param string ...$parts
+     * @return string
      */
-    public static function joinPaths(string ...$paths): string
+    public static function joinPath(string ...$parts): string
     {
-        $normalizedPaths = array_map([self::class, 'normalizePath'], $paths);
-        return implode(self::getDirectorySeparator(), $normalizedPaths);
+        $separator = self::getDirectorySeparator();
+        $path = implode($separator, array_filter($parts, 'strlen'));
+        
+        return self::normalizePath($path);
     }
 
     /**
      * Get the user's home directory path
+     * 
+     * @return string
      */
     public static function getHomeDirectory(): string
     {
@@ -92,34 +120,65 @@ class CrossPlatform
     }
 
     /**
-     * Get the appropriate configuration directory for the application
+     * Get the appropriate executable extension for the current OS
+     * 
+     * @return string
      */
-    public static function getConfigDirectory(): string
+    public static function getExecutableExtension(): string
     {
-        $homeDir = self::getHomeDirectory();
-        
-        if (self::isWindows()) {
-            $appData = $_SERVER['APPDATA'] ?? self::joinPaths($homeDir, 'AppData', 'Roaming');
-            return self::joinPaths($appData, 'OhaGui');
-        } elseif (self::isMacOS()) {
-            return self::joinPaths($homeDir, 'Library', 'Application Support', 'OhaGui');
-        } else {
-            // Linux and other Unix-like systems
-            $configHome = $_SERVER['XDG_CONFIG_HOME'] ?? self::joinPaths($homeDir, '.config');
-            return self::joinPaths($configHome, 'ohagui');
-        }
+        return self::isWindows() ? '.exe' : '';
     }
 
     /**
-     * Detect the oha binary path in the project's bin directory
+     * Find the oha binary path on the current system
+     * Searches project bin directory, common installation locations and PATH
+     * 
+     * @return string|null Path to oha binary or null if not found
      */
     public static function findOhaBinaryPath(): ?string
     {
-        $binaryName = self::isWindows() ? 'oha.exe' : 'oha';
+        $binaryName = 'oha' . self::getExecutableExtension();
         
-        // Check project bin directory
-        $projectRoot = dirname(__DIR__, 2); // Go up from src/Utils to project root
-        $binPath = self::joinPaths($projectRoot, 'bin', $binaryName);
+        // First, check the project's bin directory (highest priority)
+        $projectBinPath = self::getProjectBinPath($binaryName);
+        if ($projectBinPath !== null) {
+            return $projectBinPath;
+        }
+        
+        // Second, try to find oha in PATH
+        $pathResult = self::findInPath($binaryName);
+        if ($pathResult !== null) {
+            return $pathResult;
+        }
+        
+        // Finally, search common installation locations
+        $commonPaths = self::getCommonOhaPaths();
+        
+        foreach ($commonPaths as $path) {
+            $fullPath = self::joinPath($path, $binaryName);
+            if (file_exists($fullPath) && is_executable($fullPath)) {
+                return $fullPath;
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Check for oha binary in the project's bin directory
+     * 
+     * @param string $binaryName
+     * @return string|null
+     */
+    private static function getProjectBinPath(string $binaryName): ?string
+    {
+        // Get the project root directory (where composer.json is located)
+        $projectRoot = self::getProjectRoot();
+        if ($projectRoot === null) {
+            return null;
+        }
+        
+        $binPath = self::joinPath($projectRoot, 'bin', $binaryName);
         
         if (file_exists($binPath) && is_executable($binPath)) {
             return $binPath;
@@ -128,40 +187,154 @@ class CrossPlatform
         return null;
     }
 
-
-
     /**
-     * Execute a command and return the result
+     * Find the project root directory by looking for composer.json
+     * 
+     * @return string|null
      */
-    public static function executeCommand(string $command): array
+    private static function getProjectRoot(): ?string
     {
-        $output = [];
-        $returnCode = 0;
+        $currentDir = __DIR__;
         
-        exec($command . ' 2>&1', $output, $returnCode);
+        // Walk up the directory tree looking for composer.json
+        while ($currentDir !== dirname($currentDir)) {
+            $composerPath = self::joinPath($currentDir, 'composer.json');
+            if (file_exists($composerPath)) {
+                return $currentDir;
+            }
+            $currentDir = dirname($currentDir);
+        }
         
-        return [
-            'output' => $output,
-            'return_code' => $returnCode,
-            'success' => $returnCode === 0
-        ];
+        // Also check if we're running from the project root directly
+        if (file_exists('composer.json')) {
+            return getcwd();
+        }
+        
+        return null;
     }
 
     /**
-     * Check if oha binary is available and working
+     * Search for a binary in the system PATH
+     * 
+     * @param string $binaryName
+     * @return string|null
      */
-    public static function isOhaAvailable(): bool
+    private static function findInPath(string $binaryName): ?string
     {
-        $binaryPath = self::findOhaBinaryPath();
+        $pathSeparator = self::isWindows() ? ';' : ':';
+        $paths = explode($pathSeparator, $_SERVER['PATH'] ?? '');
         
-        if (!$binaryPath) {
-            return false;
+        foreach ($paths as $path) {
+            $fullPath = self::joinPath(trim($path), $binaryName);
+            if (file_exists($fullPath) && is_executable($fullPath)) {
+                return $fullPath;
+            }
         }
         
-        // Try to execute oha --version to verify it's working
-        $command = escapeshellarg($binaryPath) . ' --version';
-        $result = self::executeCommand($command);
+        return null;
+    }
+
+    /**
+     * Get common installation paths for oha binary based on OS
+     * 
+     * @return array
+     */
+    private static function getCommonOhaPaths(): array
+    {
+        $homeDir = self::getHomeDirectory();
         
-        return $result['success'];
+        switch (self::getOperatingSystem()) {
+            case self::OS_WINDOWS:
+                return [
+                    'C:\\Program Files\\oha',
+                    'C:\\Program Files (x86)\\oha',
+                    self::joinPath($homeDir, 'AppData', 'Local', 'oha'),
+                    self::joinPath($homeDir, '.cargo', 'bin'),
+                    'C:\\tools\\oha',
+                ];
+                
+            case self::OS_MACOS:
+                return [
+                    '/usr/local/bin',
+                    '/opt/homebrew/bin',
+                    '/usr/bin',
+                    self::joinPath($homeDir, '.cargo', 'bin'),
+                    self::joinPath($homeDir, 'bin'),
+                    '/opt/local/bin',
+                ];
+                
+            case self::OS_LINUX:
+                return [
+                    '/usr/local/bin',
+                    '/usr/bin',
+                    '/bin',
+                    self::joinPath($homeDir, '.cargo', 'bin'),
+                    self::joinPath($homeDir, 'bin'),
+                    self::joinPath($homeDir, '.local', 'bin'),
+                    '/snap/bin',
+                ];
+                
+            default:
+                return [
+                    '/usr/local/bin',
+                    '/usr/bin',
+                    '/bin',
+                    self::joinPath($homeDir, 'bin'),
+                ];
+        }
+    }
+
+    /**
+     * Get the appropriate configuration directory for the application
+     * 
+     * @return string
+     */
+    public static function getConfigDirectory(): string
+    {
+        $homeDir = self::getHomeDirectory();
+        
+        switch (self::getOperatingSystem()) {
+            case self::OS_WINDOWS:
+                $appData = $_SERVER['APPDATA'] ?? self::joinPath($homeDir, 'AppData', 'Roaming');
+                return self::joinPath($appData, 'OhaGui');
+                
+            case self::OS_MACOS:
+                return self::joinPath($homeDir, 'Library', 'Application Support', 'OhaGui');
+                
+            case self::OS_LINUX:
+            default:
+                $configHome = $_SERVER['XDG_CONFIG_HOME'] ?? self::joinPath($homeDir, '.config');
+                return self::joinPath($configHome, 'oha-gui');
+        }
+    }
+
+    /**
+     * Get the oha binary path (alias for findOhaBinaryPath for backward compatibility)
+     * 
+     * @return string|null
+     */
+    public static function getOhaBinaryPath(): ?string
+    {
+        return self::findOhaBinaryPath();
+    }
+
+    /**
+     * Escape a command argument for safe shell execution
+     * 
+     * @param string $argument
+     * @return string
+     */
+    public static function escapeShellArgument(string $argument): string
+    {
+        if (self::isWindows()) {
+            // Windows command line escaping
+            if (strpos($argument, ' ') !== false || strpos($argument, '"') !== false) {
+                $argument = '"' . str_replace('"', '""', $argument) . '"';
+            }
+            return $argument;
+        } else {
+            // Unix-like systems
+            return escapeshellarg($argument);
+        }
     }
 }

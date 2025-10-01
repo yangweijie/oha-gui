@@ -2,26 +2,28 @@
 
 namespace OhaGui\Core;
 
-use Exception;
+use DateTime;
+use InvalidArgumentException;
 
 /**
- * Configuration Validator for JSON schema validation and error handling
- * Provides comprehensive validation for configuration file structure and content
+ * Configuration Validator class for validating configuration file structure and content
+ * Defines JSON schema and validation rules for configuration files
  */
 class ConfigurationValidator
 {
     /**
-     * JSON Schema for test configuration files
+     * JSON schema definition for configuration files
+     * This defines the expected structure and validation rules
      */
     private const CONFIGURATION_SCHEMA = [
         'type' => 'object',
-        'required' => ['name', 'url', 'method', 'concurrentConnections', 'duration', 'timeout'],
+        'required' => ['name', 'url', 'method'],
         'properties' => [
             'name' => [
                 'type' => 'string',
                 'minLength' => 1,
                 'maxLength' => 100,
-                'pattern' => '^[a-zA-Z0-9_\-\.\s]+$'
+                'pattern' => '^[a-zA-Z0-9_\-\s]+$'
             ],
             'url' => [
                 'type' => 'string',
@@ -35,31 +37,33 @@ class ConfigurationValidator
             'concurrentConnections' => [
                 'type' => 'integer',
                 'minimum' => 1,
-                'maximum' => 1000
+                'maximum' => 1000,
+                'default' => 1
             ],
             'duration' => [
                 'type' => 'integer',
                 'minimum' => 1,
-                'maximum' => 3600
+                'maximum' => 3600,
+                'default' => 2
             ],
             'timeout' => [
                 'type' => 'integer',
                 'minimum' => 1,
-                'maximum' => 300
+                'maximum' => 300,
+                'default' => 30
             ],
             'headers' => [
-                'type' => 'array',
-                'items' => [
-                    'type' => 'object',
-                    'patternProperties' => [
-                        '^.+$' => [
-                            'type' => 'string'
-                        ]
+                'type' => 'object',
+                'patternProperties' => [
+                    '^.+$' => [
+                        'type' => 'string'
                     ]
-                ]
+                ],
+                'default' => []
             ],
             'body' => [
-                'type' => 'string'
+                'type' => 'string',
+                'default' => ''
             ],
             'createdAt' => [
                 'type' => 'string',
@@ -69,220 +73,50 @@ class ConfigurationValidator
                 'type' => 'string',
                 'format' => 'date-time'
             ]
-        ],
-        'additionalProperties' => false
+        ]
     ];
 
     /**
-     * Validate configuration data against JSON schema
+     * Validate configuration data against the schema
      * 
      * @param array $data Configuration data to validate
      * @return array Array of validation errors (empty if valid)
      */
-    public function validateConfigurationData(array $data): array
+    public function validateConfiguration(array $data): array
     {
         $errors = [];
-
-        try {
-            // Basic structure validation
-            $structureErrors = $this->validateStructure($data);
-            $errors = array_merge($errors, $structureErrors);
-
-            // If structure is invalid, don't proceed with detailed validation
-            if (!empty($structureErrors)) {
-                error_log('Structure validation failed: ' . implode(', ', $structureErrors));
-                return $errors;
-            }
-
-            // Detailed field validation
-            $fieldErrors = $this->validateFields($data);
-            $errors = array_merge($errors, $fieldErrors);
-            if (!empty($fieldErrors)) {
-                error_log('Field validation failed: ' . implode(', ', $fieldErrors));
-            }
-
-            // Business logic validation
-            $businessErrors = $this->validateBusinessRules($data);
-            $errors = array_merge($errors, $businessErrors);
-            if (!empty($businessErrors)) {
-                error_log('Business validation failed: ' . implode(', ', $businessErrors));
-            }
-
-        } catch (Exception $e) {
-            $errors[] = 'Validation error: ' . $e->getMessage();
-        }
-
-        return $errors;
-    }
-
-    /**
-     * Validate JSON content structure
-     * 
-     * @param string $jsonContent JSON string to validate
-     * @return array Array of validation errors (empty if valid)
-     */
-    public function validateJsonContent(string $jsonContent): array
-    {
-        $errors = [];
-
-        // Check if content is empty
-        if (empty(trim($jsonContent))) {
-            $errors[] = 'Configuration content is empty';
-            return $errors;
-        }
-
-        // Validate JSON syntax
-        $data = json_decode($jsonContent, true);
-        $jsonError = json_last_error();
-
-        if ($jsonError !== JSON_ERROR_NONE) {
-            $errors[] = 'Invalid JSON syntax: ' . $this->getJsonErrorMessage($jsonError);
-            return $errors;
-        }
-
-        // Validate data structure
-        if (!is_array($data)) {
-            $errors[] = 'Configuration must be a JSON object';
-            return $errors;
-        }
-
-        // Validate against schema
-        $schemaErrors = $this->validateConfigurationData($data);
-        $errors = array_merge($errors, $schemaErrors);
-
-        return $errors;
-    }
-
-    /**
-     * Validate basic structure requirements
-     * 
-     * @param array $data Configuration data
-     * @return array Validation errors
-     */
-    private function validateStructure(array $data): array
-    {
-        $errors = [];
-        $requiredFields = self::CONFIGURATION_SCHEMA['required'];
 
         // Check required fields
-        foreach ($requiredFields as $field) {
-            if (!array_key_exists($field, $data)) {
-                $errors[] = "Required field '{$field}' is missing";
-            }
-        }
+        $errors = array_merge($errors, $this->validateRequiredFields($data));
 
-        // Check for unexpected fields
-        $allowedFields = array_keys(self::CONFIGURATION_SCHEMA['properties']);
-        foreach ($data as $field => $value) {
-            if (!in_array($field, $allowedFields)) {
-                $errors[] = "Unknown field '{$field}' is not allowed";
-            }
-        }
+        // Validate individual fields
+        $errors = array_merge($errors, $this->validateName($data));
+        $errors = array_merge($errors, $this->validateUrl($data));
+        $errors = array_merge($errors, $this->validateMethod($data));
+        $errors = array_merge($errors, $this->validateConcurrentConnections($data));
+        $errors = array_merge($errors, $this->validateDuration($data));
+        $errors = array_merge($errors, $this->validateTimeout($data));
+        $errors = array_merge($errors, $this->validateHeaders($data));
+        $errors = array_merge($errors, $this->validateBody($data));
+        $errors = array_merge($errors, $this->validateTimestamps($data));
 
-        return $errors;
+        return array_unique($errors);
     }
 
     /**
-     * Validate individual fields
+     * Validate that required fields are present
      * 
-     * @param array $data Configuration data
-     * @return array Validation errors
+     * @param array $data
+     * @return array
      */
-    private function validateFields(array $data): array
+    private function validateRequiredFields(array $data): array
     {
         $errors = [];
+        $required = self::CONFIGURATION_SCHEMA['required'];
 
-        // Validate name
-        if (isset($data['name'])) {
-            $nameErrors = $this->validateName($data['name']);
-            $errors = array_merge($errors, $nameErrors);
-        }
-
-        // Validate URL
-        if (isset($data['url'])) {
-            $urlErrors = $this->validateUrl($data['url']);
-            $errors = array_merge($errors, $urlErrors);
-        }
-
-        // Validate HTTP method
-        if (isset($data['method'])) {
-            $methodErrors = $this->validateMethod($data['method']);
-            $errors = array_merge($errors, $methodErrors);
-        }
-
-        // Validate numeric fields
-        $numericFields = [
-            'concurrentConnections' => [1, 1000],
-            'duration' => [1, 3600],
-            'timeout' => [1, 300]
-        ];
-
-        foreach ($numericFields as $field => [$min, $max]) {
-            if (isset($data[$field])) {
-                $numericErrors = $this->validateNumericField($field, $data[$field], $min, $max);
-                $errors = array_merge($errors, $numericErrors);
-            }
-        }
-
-        // Validate headers
-        if (isset($data['headers'])) {
-            // Ensure headers is an array
-            if (!is_array($data['headers'])) {
-                $errors[] = 'Headers must be an array';
-            } else {
-                $headerErrors = $this->validateHeaders($data['headers']);
-                $errors = array_merge($errors, $headerErrors);
-            }
-        } else {
-            // If headers is not set, default to empty array
-            $data['headers'] = [];
-        }
-
-        // Validate body
-        if (isset($data['body'])) {
-            $bodyErrors = $this->validateBody($data['body'], $data['method'] ?? 'GET');
-            $errors = array_merge($errors, $bodyErrors);
-        }
-
-        // Validate timestamps
-        foreach (['createdAt', 'updatedAt'] as $field) {
-            if (isset($data[$field])) {
-                $timestampErrors = $this->validateTimestamp($field, $data[$field]);
-                $errors = array_merge($errors, $timestampErrors);
-            }
-        }
-
-        return $errors;
-    }
-
-    /**
-     * Validate business rules
-     * 
-     * @param array $data Configuration data
-     * @return array Validation errors
-     */
-    private function validateBusinessRules(array $data): array
-    {
-        $errors = [];
-
-        // Validate that body is only provided for methods that support it
-        $methodsWithBody = ['POST', 'PUT', 'PATCH'];
-        if (!empty($data['body']) && !in_array($data['method'] ?? '', $methodsWithBody)) {
-            $errors[] = "Request body is not allowed for {$data['method']} method";
-        }
-
-        // Validate timeout is not greater than duration
-//        if (isset($data['timeout']) && isset($data['duration'])) {
-//            if ($data['timeout'] > $data['duration']) {
-//                $errors[] = 'Timeout cannot be greater than test duration';
-//            }
-//        }
-
-        // Validate reasonable concurrent connections for duration
-        if (isset($data['concurrentConnections']) && isset($data['duration'])) {
-            $totalRequests = $data['concurrentConnections'] * $data['duration'];
-            if ($totalRequests > 100000) {
-                $errors[] = 'Configuration may generate excessive load (consider reducing concurrent connections or duration)';
+        foreach ($required as $field) {
+            if (!isset($data[$field]) || (is_string($data[$field]) && trim($data[$field]) === '')) {
+                $errors[] = "Required field '{$field}' is missing or empty";
             }
         }
 
@@ -291,26 +125,36 @@ class ConfigurationValidator
 
     /**
      * Validate configuration name
+     * 
+     * @param array $data
+     * @return array
      */
-    private function validateName(mixed $name): array
+    private function validateName(array $data): array
     {
         $errors = [];
+        
+        if (!isset($data['name'])) {
+            return $errors; // Already handled in required fields
+        }
+
+        $name = $data['name'];
+        $schema = self::CONFIGURATION_SCHEMA['properties']['name'];
 
         if (!is_string($name)) {
             $errors[] = 'Configuration name must be a string';
             return $errors;
         }
 
-        if (empty(trim($name))) {
-            $errors[] = 'Configuration name cannot be empty';
+        if (strlen($name) < $schema['minLength']) {
+            $errors[] = "Configuration name must be at least {$schema['minLength']} character(s) long";
         }
 
-        if (strlen($name) > 100) {
-            $errors[] = 'Configuration name cannot exceed 100 characters';
+        if (strlen($name) > $schema['maxLength']) {
+            $errors[] = "Configuration name must be no more than {$schema['maxLength']} characters long";
         }
 
-        if (!preg_match('/^[a-zA-Z0-9_\-\.\s]+$/', $name)) {
-            $errors[] = 'Configuration name contains invalid characters (only letters, numbers, spaces, dots, hyphens, and underscores allowed)';
+        if (!preg_match('/' . $schema['pattern'] . '/', $name)) {
+            $errors[] = 'Configuration name can only contain letters, numbers, spaces, hyphens, and underscores';
         }
 
         return $errors;
@@ -318,10 +162,19 @@ class ConfigurationValidator
 
     /**
      * Validate URL
+     * 
+     * @param array $data
+     * @return array
      */
-    private function validateUrl(mixed $url): array
+    private function validateUrl(array $data): array
     {
         $errors = [];
+        
+        if (!isset($data['url'])) {
+            return $errors; // Already handled in required fields
+        }
+
+        $url = $data['url'];
 
         if (!is_string($url)) {
             $errors[] = 'URL must be a string';
@@ -337,12 +190,14 @@ class ConfigurationValidator
             $errors[] = 'URL format is invalid';
         }
 
-        // Check for supported protocols
+        // Additional URL validation
         $parsedUrl = parse_url($url);
-        if ($parsedUrl === false || !isset($parsedUrl['scheme'])) {
-            $errors[] = 'URL must include a protocol (http or https)';
-        } elseif (!in_array(strtolower($parsedUrl['scheme']), ['http', 'https'])) {
-            $errors[] = 'URL must use HTTP or HTTPS protocol';
+        if (!$parsedUrl || !isset($parsedUrl['scheme']) || !isset($parsedUrl['host'])) {
+            $errors[] = 'URL must include scheme (http/https) and host';
+        }
+
+        if (isset($parsedUrl['scheme']) && !in_array($parsedUrl['scheme'], ['http', 'https'])) {
+            $errors[] = 'URL scheme must be http or https';
         }
 
         return $errors;
@@ -350,18 +205,28 @@ class ConfigurationValidator
 
     /**
      * Validate HTTP method
+     * 
+     * @param array $data
+     * @return array
      */
-    private function validateMethod(mixed $method): array
+    private function validateMethod(array $data): array
     {
         $errors = [];
+        
+        if (!isset($data['method'])) {
+            return $errors; // Already handled in required fields
+        }
+
+        $method = $data['method'];
+        $validMethods = self::CONFIGURATION_SCHEMA['properties']['method']['enum'];
 
         if (!is_string($method)) {
             $errors[] = 'HTTP method must be a string';
             return $errors;
         }
 
-        $validMethods = self::CONFIGURATION_SCHEMA['properties']['method']['enum'];
-        if (!in_array(strtoupper($method), $validMethods)) {
+        $method = strtoupper(trim($method));
+        if (!in_array($method, $validMethods)) {
             $errors[] = 'HTTP method must be one of: ' . implode(', ', $validMethods);
         }
 
@@ -369,55 +234,140 @@ class ConfigurationValidator
     }
 
     /**
-     * Validate numeric field
+     * Validate concurrent connections
+     * 
+     * @param array $data
+     * @return array
      */
-    private function validateNumericField(string $fieldName, mixed $value, int $min, int $max): array
+    private function validateConcurrentConnections(array $data): array
     {
         $errors = [];
+        
+        if (!isset($data['concurrentConnections'])) {
+            return $errors; // Optional field
+        }
 
-        if (!is_int($value)) {
-            $errors[] = "{$fieldName} must be an integer";
+        $connections = $data['concurrentConnections'];
+        $schema = self::CONFIGURATION_SCHEMA['properties']['concurrentConnections'];
+
+        if (!is_int($connections) && !is_numeric($connections)) {
+            $errors[] = 'Concurrent connections must be a number';
             return $errors;
         }
 
-        if ($value < $min || $value > $max) {
-            $errors[] = "{$fieldName} must be between {$min} and {$max}";
+        $connections = (int)$connections;
+
+        if ($connections < $schema['minimum']) {
+            $errors[] = "Concurrent connections must be at least {$schema['minimum']}";
+        }
+
+        if ($connections > $schema['maximum']) {
+            $errors[] = "Concurrent connections must be no more than {$schema['maximum']}";
         }
 
         return $errors;
     }
 
     /**
-     * Validate headers array
+     * Validate duration
+     * 
+     * @param array $data
+     * @return array
      */
-    private function validateHeaders(mixed $headers): array
+    private function validateDuration(array $data): array
     {
         $errors = [];
+        
+        if (!isset($data['duration'])) {
+            return $errors; // Optional field
+        }
 
-        if (!is_array($headers)) {
-            $errors[] = 'Headers must be an array';
+        $duration = $data['duration'];
+        $schema = self::CONFIGURATION_SCHEMA['properties']['duration'];
+
+        if (!is_int($duration) && !is_numeric($duration)) {
+            $errors[] = 'Duration must be a number';
             return $errors;
         }
 
-        // Handle empty headers array
-        if (empty($headers)) {
+        $duration = (int)$duration;
+
+        if ($duration < $schema['minimum']) {
+            $errors[] = "Duration must be at least {$schema['minimum']} second(s)";
+        }
+
+        if ($duration > $schema['maximum']) {
+            $errors[] = "Duration must be no more than {$schema['maximum']} seconds";
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Validate timeout
+     * 
+     * @param array $data
+     * @return array
+     */
+    private function validateTimeout(array $data): array
+    {
+        $errors = [];
+        
+        if (!isset($data['timeout'])) {
+            return $errors; // Optional field
+        }
+
+        $timeout = $data['timeout'];
+        $schema = self::CONFIGURATION_SCHEMA['properties']['timeout'];
+
+        if (!is_int($timeout) && !is_numeric($timeout)) {
+            $errors[] = 'Timeout must be a number';
+            return $errors;
+        }
+
+        $timeout = (int)$timeout;
+
+        if ($timeout < $schema['minimum']) {
+            $errors[] = "Timeout must be at least {$schema['minimum']} second(s)";
+        }
+
+        if ($timeout > $schema['maximum']) {
+            $errors[] = "Timeout must be no more than {$schema['maximum']} seconds";
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Validate headers
+     * 
+     * @param array $data
+     * @return array
+     */
+    private function validateHeaders(array $data): array
+    {
+        $errors = [];
+        
+        if (!isset($data['headers'])) {
+            return $errors; // Optional field
+        }
+
+        $headers = $data['headers'];
+
+        if (!is_array($headers)) {
+            $errors[] = 'Headers must be an array/object';
             return $errors;
         }
 
         foreach ($headers as $key => $value) {
-            if (!is_string($key) || !is_string($value)) {
-                $errors[] = 'Headers must be key-value pairs of strings';
+            if (!is_string($key) || empty(trim($key))) {
+                $errors[] = 'Header keys must be non-empty strings';
                 break;
             }
 
-            if (empty(trim($key))) {
-                $errors[] = 'Header names cannot be empty';
+            if (!is_string($value)) {
+                $errors[] = 'Header values must be strings';
                 break;
-            }
-
-            // Validate header name format (basic HTTP header validation)
-            if (!preg_match('/^[a-zA-Z0-9\-_]+$/', $key)) {
-                $errors[] = "Invalid header name '{$key}' (only letters, numbers, hyphens, and underscores allowed)";
             }
         }
 
@@ -426,27 +376,33 @@ class ConfigurationValidator
 
     /**
      * Validate request body
+     * 
+     * @param array $data
+     * @return array
      */
-    private function validateBody(mixed $body, string $method): array
+    private function validateBody(array $data): array
     {
         $errors = [];
+        
+        if (!isset($data['body'])) {
+            return $errors; // Optional field
+        }
+
+        $body = $data['body'];
 
         if (!is_string($body)) {
             $errors[] = 'Request body must be a string';
             return $errors;
         }
 
-        // If body is provided, validate JSON format for applicable methods
-        if (!empty($body)) {
+        // If body is not empty and method supports body, validate JSON format
+        if (!empty(trim($body)) && isset($data['method'])) {
+            $method = strtoupper($data['method']);
             $methodsWithBody = ['POST', 'PUT', 'PATCH'];
-            if (in_array(strtoupper($method), $methodsWithBody)) {
-                // Try to parse as JSON if it looks like JSON
-                $trimmedBody = trim($body);
-                if (str_starts_with($trimmedBody, '{') || str_starts_with($trimmedBody, '[')) {
-                    json_decode($body);
-                    if (json_last_error() !== JSON_ERROR_NONE) {
-                        $errors[] = 'Request body appears to be JSON but is invalid: ' . json_last_error_msg();
-                    }
+            
+            if (in_array($method, $methodsWithBody)) {
+                if (!$this->isValidJson($body) && !$this->isValidFormData($body)) {
+                    $errors[] = 'Request body must be valid JSON or form data for ' . $method . ' requests';
                 }
             }
         }
@@ -455,142 +411,196 @@ class ConfigurationValidator
     }
 
     /**
-     * Validate timestamp format
+     * Validate timestamps
+     * 
+     * @param array $data
+     * @return array
      */
-    private function validateTimestamp(string $fieldName, mixed $timestamp): array
+    private function validateTimestamps(array $data): array
     {
         $errors = [];
+        
+        $timestampFields = ['createdAt', 'updatedAt'];
+        
+        foreach ($timestampFields as $field) {
+            if (isset($data[$field])) {
+                $timestamp = $data[$field];
+                
+                if (!is_string($timestamp)) {
+                    $errors[] = "{$field} must be a string";
+                    continue;
+                }
 
-        if (!is_string($timestamp)) {
-            $errors[] = "{$fieldName} must be a string";
-            return $errors;
-        }
-
-        // Try to parse the timestamp
-        $dateTime = \DateTime::createFromFormat('Y-m-d H:i:s', $timestamp);
-        if ($dateTime === false) {
-            $errors[] = "{$fieldName} must be in format 'Y-m-d H:i:s'";
+                // Try to parse the timestamp
+                $dateTime = DateTime::createFromFormat('Y-m-d H:i:s', $timestamp);
+                if (!$dateTime || $dateTime->format('Y-m-d H:i:s') !== $timestamp) {
+                    $errors[] = "{$field} must be in format 'Y-m-d H:i:s'";
+                }
+            }
         }
 
         return $errors;
     }
 
     /**
-     * Get human-readable JSON error message
+     * Check if string is valid JSON
+     * 
+     * @param string $string
+     * @return bool
      */
-    private function getJsonErrorMessage(int $errorCode): string
+    private function isValidJson(string $string): bool
     {
-        return match ($errorCode) {
-            JSON_ERROR_DEPTH => 'Maximum stack depth exceeded',
-            JSON_ERROR_STATE_MISMATCH => 'Invalid or malformed JSON',
-            JSON_ERROR_CTRL_CHAR => 'Control character error',
-            JSON_ERROR_SYNTAX => 'Syntax error',
-            JSON_ERROR_UTF8 => 'Malformed UTF-8 characters',
-            JSON_ERROR_RECURSION => 'Recursion detected',
-            JSON_ERROR_INF_OR_NAN => 'Infinity or NaN value',
-            JSON_ERROR_UNSUPPORTED_TYPE => 'Unsupported type',
-            default => 'Unknown JSON error'
-        };
+        json_decode($string);
+        return json_last_error() === JSON_ERROR_NONE;
     }
 
     /**
-     * Get the JSON schema for configuration files
+     * Check if string is valid form data format
      * 
-     * @return array JSON schema array
+     * @param string $string
+     * @return bool
      */
-    public function getConfigurationSchema(): array
+    private function isValidFormData(string $string): bool
+    {
+        // Form data must contain at least one = sign for key=value pairs
+        if (!str_contains($string, '=')) {
+            return false;
+        }
+        
+        // Simple check for form data format (key=value&key=value)
+        return preg_match('/^[^=&]+(=[^&]*)?(&[^=&]+(=[^&]*)?)*$/', $string) === 1;
+    }
+
+    /**
+     * Validate configuration file content (JSON string)
+     * 
+     * @param string $jsonContent JSON content to validate
+     * @return array Array of validation errors
+     */
+    public function validateConfigurationFile(string $jsonContent): array
+    {
+        $errors = [];
+
+        // First, validate JSON syntax
+        $data = json_decode($jsonContent, true);
+        
+        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
+            $errors[] = 'Invalid JSON format: ' . json_last_error_msg();
+            return $errors;
+        }
+
+        if (!is_array($data) || array_keys($data) === range(0, count($data) - 1)) {
+            $errors[] = 'Configuration file must contain a JSON object';
+            return $errors;
+        }
+
+        // Then validate configuration structure and content
+        $errors = array_merge($errors, $this->validateConfiguration($data));
+
+        return $errors;
+    }
+
+    /**
+     * Get the configuration schema
+     * 
+     * @return array
+     */
+    public function getSchema(): array
     {
         return self::CONFIGURATION_SCHEMA;
     }
 
     /**
-     * Validate configuration file and provide detailed error report
+     * Get default values for optional fields
      * 
-     * @param string $filePath Path to configuration file
-     * @return array Validation result with errors and warnings
+     * @return array
      */
-    public function validateConfigurationFile(string $filePath): array
+    public function getDefaultValues(): array
     {
-        $result = [
-            'isValid' => false,
-            'errors' => [],
-            'warnings' => [],
-            'filePath' => $filePath
-        ];
-
-        try {
-            // Check if file exists and is readable
-            if (!file_exists($filePath)) {
-                $result['errors'][] = 'Configuration file does not exist';
-                return $result;
+        $defaults = [];
+        
+        foreach (self::CONFIGURATION_SCHEMA['properties'] as $field => $schema) {
+            if (isset($schema['default'])) {
+                $defaults[$field] = $schema['default'];
             }
-
-            if (!is_readable($filePath)) {
-                $result['errors'][] = 'Configuration file is not readable';
-                return $result;
-            }
-
-            // Read and validate file content
-            $content = file_get_contents($filePath);
-            if ($content === false) {
-                $result['errors'][] = 'Failed to read configuration file';
-                return $result;
-            }
-
-            // Validate JSON content
-            $errors = $this->validateJsonContent($content);
-            $result['errors'] = $errors;
-
-            // Add warnings for potential issues
-            $warnings = $this->generateWarnings($content);
-            $result['warnings'] = $warnings;
-
-            $result['isValid'] = empty($errors);
-
-        } catch (Exception $e) {
-            $result['errors'][] = 'Validation error: ' . $e->getMessage();
         }
 
-        return $result;
+        return $defaults;
     }
 
     /**
-     * Generate warnings for potential configuration issues
+     * Sanitize and normalize configuration data
+     * 
+     * @param array $data Raw configuration data
+     * @return array Sanitized configuration data
      */
-    private function generateWarnings(string $content): array
+    public function sanitizeConfiguration(array $data): array
     {
-        $warnings = [];
+        $sanitized = [];
+        $defaults = $this->getDefaultValues();
 
-        try {
-            $data = json_decode($content, true);
-            if ($data === null) {
-                return $warnings;
-            }
+        // Apply defaults for missing optional fields
+        $sanitized = array_merge($defaults, $data);
 
-            // Warning for very high concurrent connections
-            if (isset($data['concurrentConnections']) && $data['concurrentConnections'] > 100) {
-                $warnings[] = 'High concurrent connections may cause excessive server load';
-            }
-
-            // Warning for very long duration
-            if (isset($data['duration']) && $data['duration'] > 300) {
-                $warnings[] = 'Long test duration may consume significant resources';
-            }
-
-            // Warning for missing optional fields
-            if (!isset($data['headers']) || empty($data['headers'])) {
-                $warnings[] = 'No custom headers specified';
-            }
-
-            // Warning for localhost URLs in production-like configs
-            if (isset($data['url']) && (str_contains($data['url'], 'localhost') || str_contains($data['url'], '127.0.0.1'))) {
-                $warnings[] = 'Configuration uses localhost URL';
-            }
-
-        } catch (Exception $e) {
-            // Ignore warnings generation errors
+        // Sanitize individual fields
+        if (isset($sanitized['name'])) {
+            $sanitized['name'] = trim($sanitized['name']);
         }
 
-        return $warnings;
+        if (isset($sanitized['url'])) {
+            $sanitized['url'] = trim($sanitized['url']);
+        }
+
+        if (isset($sanitized['method'])) {
+            $sanitized['method'] = strtoupper(trim($sanitized['method']));
+        }
+
+        if (isset($sanitized['concurrentConnections'])) {
+            $sanitized['concurrentConnections'] = (int)$sanitized['concurrentConnections'];
+        }
+
+        if (isset($sanitized['duration'])) {
+            $sanitized['duration'] = (int)$sanitized['duration'];
+        }
+
+        if (isset($sanitized['timeout'])) {
+            $sanitized['timeout'] = (int)$sanitized['timeout'];
+        }
+
+        if (isset($sanitized['headers']) && !is_array($sanitized['headers'])) {
+            $sanitized['headers'] = [];
+        }
+
+        if (isset($sanitized['body'])) {
+            $sanitized['body'] = (string)$sanitized['body'];
+        }
+
+        return $sanitized;
+    }
+
+    /**
+     * Check if configuration data is valid
+     * 
+     * @param array $data Configuration data
+     * @return bool True if valid
+     */
+    public function isValid(array $data): bool
+    {
+        return empty($this->validateConfiguration($data));
+    }
+
+    /**
+     * Validate and throw exception if invalid
+     * 
+     * @param array $data Configuration data
+     * @throws InvalidArgumentException If validation fails
+     */
+    public function validateOrThrow(array $data): void
+    {
+        $errors = $this->validateConfiguration($data);
+        
+        if (!empty($errors)) {
+            throw new InvalidArgumentException('Configuration validation failed: ' . implode(', ', $errors));
+        }
     }
 }

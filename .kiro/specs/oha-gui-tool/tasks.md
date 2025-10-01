@@ -69,14 +69,47 @@
   - Implement form validation and error display
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7_
 
-- [x] 5.4 Create configuration management UI
-  - Implement configuration list display with names and dates
-  - Add buttons for loading, saving, and deleting configurations
-  - Create configuration name input dialog
-  - Add confirmation dialogs for destructive operations
-  - _Requirements: 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 6.1, 6.2, 6.3, 6.4_
+- [x] 5.4 Create configuration dropdown component
+  - Implement ConfigurationDropdown class with libui combobox
+  - Add methods to populate dropdown with available configurations
+  - Implement configuration selection handling and callbacks
+  - Add placeholder text display when no configuration is selected
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [x] 5.5 Build results display component
+- [x] 5.5 Build configuration management popup window
+  - Create ConfigurationManagerWindow class with popup window
+  - Implement "新增" (Add New) button at the top of the window
+  - Add window layout and proper sizing for management interface
+  - Handle window closing and modal behavior
+  - _Requirements: 6.1, 6.2_
+
+- [x] 5.6 Implement configuration table display
+  - Create ConfigurationTable class with table layout
+  - Add columns for "名称" (Name), "配置概要" (Configuration Summary), and action buttons
+  - Implement table row population from configuration data
+  - Add configuration summary generation from TestConfiguration objects
+  - _Requirements: 6.3, 6.4_
+
+- [x] 5.7 Create configuration action buttons
+  - Implement "编辑" (Edit), "删除" (Delete), and "选择" (Select) buttons for each table row
+  - Add button click handlers for each action type
+  - Create proper button layout within table cells
+  - _Requirements: 6.4, 6.6, 6.7, 6.9_
+
+- [x] 5.8 Build configuration add/edit dialog
+  - Create ConfigurationDialog class for add and edit operations
+  - Implement popup dialog with configuration form fields
+  - Add save and cancel button functionality
+  - Handle both new configuration creation and existing configuration editing
+  - _Requirements: 6.5, 6.6_
+
+- [x] 5.9 Implement delete confirmation dialog
+  - Create custom confirmation dialog for configuration deletion
+  - Add proper confirmation message and yes/no buttons
+  - Handle confirmation result and trigger deletion process
+  - _Requirements: 6.7, 6.8_
+
+- [x] 5.10 Build results display component
   - Create results area for displaying test output
   - Implement formatted metrics display (requests/sec, total requests, success rate)
   - Add real-time output streaming during test execution
@@ -91,12 +124,26 @@
   - Handle test execution errors and display appropriate messages
   - _Requirements: 4.1, 4.2, 4.5, 4.6_
 
-- [x] 6.2 Integrate configuration management with GUI
-  - Connect configuration list to form population
-  - Implement save configuration workflow from form
-  - Add configuration loading and form updating
-  - Handle configuration management errors
-  - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3_
+- [x] 6.2 Integrate configuration dropdown with main interface
+  - Connect configuration dropdown to main window layout
+  - Implement configuration selection and form population
+  - Add "管理" (Management) button next to dropdown
+  - Handle dropdown refresh when configurations are added/deleted
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 6.1_
+
+- [x] 6.3 Connect management window to main interface
+  - Wire "管理" button to open configuration management window
+  - Implement configuration selection from management window back to main interface
+  - Add configuration dropdown refresh after management operations
+  - Handle window modal behavior and proper focus management
+  - _Requirements: 6.1, 6.9, 6.10_
+
+- [x] 6.4 Integrate configuration CRUD operations with GUI
+  - Connect add/edit dialogs to configuration saving
+  - Implement delete confirmation and file removal
+  - Add table refresh after configuration operations
+  - Handle configuration management errors and user feedback
+  - _Requirements: 6.5, 6.6, 6.7, 6.8, 2.1, 2.2, 2.3, 2.4_
 
 - [x] 6.3 Connect test execution to results display
   - Wire test executor output to results display component
@@ -140,10 +187,6 @@
 
 - [x] 8.3 Implement final integration and polish
 
-
-
-
-
   - Add application icon and window properties
   - Implement proper resource cleanup on application exit
   - Add user experience improvements (keyboard shortcuts, tooltips)
@@ -152,14 +195,6 @@
 -
 
 - [x] 9. Fix GUI component integration issues
-
-
-
-
-
-
-
-
 
   - Debug and fix ConfigurationForm cleanup method calls
   - Resolve ConfigurationList cleanup method calls
@@ -173,14 +208,10 @@
 - [x] 10. Enhance configuration management dialogs
 
 
-
-
-
   - Implement proper save configuration name input dialog
   - Add delete confirmation dialog functionality
   - Create configuration import/export dialogs
-  - Improve configuration list selectio
-n a-d display
+  - Improve configuration list selection and display
 
 - [x] 11. Add missing GUI functionality
 
@@ -189,7 +220,7 @@ n a-d display
 
   - _Requirements: 2.1, 2.2, 2.3, 6.1, 6.2, 6.3, 6.4_
 
-- [ ] 11. Add missing GUI functionality
+- [x] 11. Add missing GUI functionality
 
   - Implement proper dialog boxes for user input (save config name)
   - Add keyboard shortcuts and menu system if supported by libui

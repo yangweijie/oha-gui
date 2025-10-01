@@ -34,15 +34,16 @@ This feature involves creating a cross-platform GUI application for HTTP load te
 
 ### Requirement 3
 
-**User Story:** As a user, I want to load previously saved configurations, so that I can quickly restore test parameters without re-entering them.
+**User Story:** As a user, I want to select configurations from a dropdown menu, so that I can quickly switch between different test scenarios.
 
 #### Acceptance Criteria
 
-1. WHEN the application starts THEN the system SHALL display a list of available saved configurations
-2. WHEN I select a configuration from the list THEN the system SHALL load all parameters into the form fields
-3. WHEN I click "Load Configuration" THEN the system SHALL populate all input fields with the saved values
-4. WHEN a configuration is loaded THEN the system SHALL show a confirmation message
-5. IF no configurations exist THEN the system SHALL display an appropriate message
+1. WHEN the application starts THEN the system SHALL display a configuration dropdown labeled "配置" (Configuration)
+2. WHEN no configuration is selected THEN the dropdown SHALL show "Select Config" as placeholder text
+3. WHEN I click the configuration dropdown THEN the system SHALL show all available saved configurations
+4. WHEN I select a configuration from the dropdown THEN the system SHALL load all parameters into the form fields
+5. WHEN a configuration is loaded THEN the system SHALL update the dropdown to show the selected configuration name
+6. IF no configurations exist THEN the dropdown SHALL show appropriate placeholder text
 
 ### Requirement 4
 
@@ -71,15 +72,20 @@ This feature involves creating a cross-platform GUI application for HTTP load te
 
 ### Requirement 6
 
-**User Story:** As a user, I want to manage my saved configurations, so that I can organize and maintain my test scenarios.
+**User Story:** As a user, I want to manage my saved configurations through a dedicated management interface, so that I can organize and maintain my test scenarios efficiently.
 
 #### Acceptance Criteria
 
-1. WHEN I view the configuration list THEN the system SHALL show configuration names and creation dates
-2. WHEN I right-click a configuration THEN the system SHALL show options to edit, delete, or duplicate
-3. WHEN I delete a configuration THEN the system SHALL ask for confirmation before removal
-4. WHEN I edit a configuration THEN the system SHALL load it into the form and allow saving with the same name
-5. WHEN configurations are stored THEN the system SHALL use a consistent JSON format across all platforms
+1. WHEN I click the "管理" (Management) button THEN the system SHALL open a configuration management popup window
+2. WHEN the management window opens THEN the system SHALL display a "新增" (Add New) button at the top
+3. WHEN the management window opens THEN the system SHALL display a table with columns for "名称" (Name), "配置概要" (Configuration Summary), and action buttons
+4. WHEN I view the configuration table THEN each row SHALL have "编辑" (Edit), "删除" (Delete), and "选择" (Select) buttons
+5. WHEN I click "新增" THEN the system SHALL open a new popup window for creating a configuration
+6. WHEN I click "编辑" on a configuration THEN the system SHALL open a popup window with the configuration loaded for editing
+7. WHEN I click "删除" on a configuration THEN the system SHALL show a custom confirmation dialog
+8. WHEN I confirm deletion THEN the system SHALL delete both the configuration file and remove the row from the table
+9. WHEN I click "选择" on a configuration THEN the system SHALL close the management window and return to the main interface
+10. WHEN a configuration is selected THEN the system SHALL refresh the configuration dropdown in the main interface and select the chosen configuration
 
 ### Requirement 7
 

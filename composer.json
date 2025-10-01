@@ -34,5 +34,8 @@
             "@php scripts/check-libui-dylib.php",
             "@php scripts/patchBase.php"
         ]
+    },
+    "require-dev": {
+        "pestphp/pest": "^4.1"
     }
 }

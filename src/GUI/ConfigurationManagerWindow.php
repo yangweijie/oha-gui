@@ -1,614 +1,449 @@
 <?php
 
+declare(strict_types=1);
+
 namespace OhaGui\GUI;
 
-use Kingbes\Libui\App;
-use Kingbes\Libui\Window;
 use Kingbes\Libui\Control;
-use Kingbes\Libui\Table;
-use Kingbes\Libui\TableValueType;
+use Kingbes\Libui\Window;
+use Kingbes\Libui\Box;
 use Kingbes\Libui\Label;
-use Kingbes\Libui\Entry;
 use Kingbes\Libui\Button;
 use Kingbes\Libui\Separator;
-use Kingbes\Libui\Box;
-use FFI\CData;
-use OhaGui\Models\TestConfiguration;
+use OhaGui\GUI\ConfigurationTable;
+use OhaGui\GUI\ConfigurationDialog;
+use OhaGui\GUI\ConfirmationDialog;
 use OhaGui\Core\ConfigurationManager;
-use Exception;
+use Throwable;
 
 /**
- * Configuration Manager Window
- *
- * A popup window for managing test configurations with a form-table interface
+ * Configuration management popup window for OHA GUI Tool
+ * Provides interface for managing saved configurations
  */
-class ConfigurationManagerWindow
+class ConfigurationManagerWindow extends BaseGUIComponent
 {
-    private CData $window;
-    private CData $formBox;
-    private array $entries = [];
-    private CData $table;
-    private CData $tableModel;
-    private ConfigurationManager $configManager;
-    private array $configurations = [];
-    private ?string $editingConfigName = null;
-    private CData $saveButton;
-    private CData $resetButton;
-
-    private $onCloseCallback = null;
+    private $window;
+    private $vbox;
+    private $addButton;
+    private ?ConfigurationTable $configTable = null;
+    private ?ConfigurationDialog $configDialog = null;
+    private ?ConfigurationManager $configManager = null;
+    private $onConfigurationSelectedCallback = null;
+    private $onConfigurationChangedCallback = null;
 
     /**
      * Initialize the configuration manager window
-     *
-     * @param CData|null $parentWindow Parent window for positioning
      */
-    public function __construct(?CData $parentWindow = null)
+    public function __construct()
     {
         $this->configManager = new ConfigurationManager();
         $this->createWindow();
-        $this->createForm();
-        $this->createTable();
-        $this->refreshConfigurations();
+        $this->createLayout();
+        $this->setupEventHandlers();
     }
 
     /**
-     * Create the main window
-     *
-     * @return void
+     * Create the popup window
      */
     private function createWindow(): void
     {
-        $this->window = Window::create('Configuration Manager', 800, 600, 0);
+        // Create window
+        $this->window = Window::create(
+            "配置管理",
+            600,  // width
+            400,  // height
+            0     // no menubar
+        );
+
+        // Set window properties
         Window::setMargined($this->window, true);
-
-        Window::onClosing($this->window, function ($window) {
-            return $this->onWindowClosing();
-        });
     }
 
     /**
-     * Create the form section
-     *
-     * @return void
+     * Create the window layout
      */
-    private function createForm(): void
+    private function createLayout(): void
     {
-        $this->formBox = Box::newVerticalBox();
-        Box::setPadded($this->formBox, true);
+        // Create main vertical box
+        $this->vbox = Box::newVerticalBox();
+        Box::setPadded($this->vbox, true);
 
-        // Name field
-        $nameLabel = Label::create('Name:');
-        $this->entries['name'] = Entry::create();
-        Box::append($this->formBox, $nameLabel, false);
-        Box::append($this->formBox, $this->entries['name'], false);
+        // Create header section with add button
+        $this->createHeaderSection();
 
-        // URL field
-        $urlLabel = Label::create('URL:');
-        $this->entries['url'] = Entry::create();
-        Entry::setText($this->entries['url'], 'http://localhost:8080');
-        Box::append($this->formBox, $urlLabel, false);
-        Box::append($this->formBox, $this->entries['url'], false);
+        // Create configuration table
+        $this->configTable = new ConfigurationTable();
+        $this->configTable->setOnEditCallback([$this, 'onEditConfiguration']);
+        $this->configTable->setOnDeleteCallback([$this, 'onDeleteConfiguration']);
+        $this->configTable->setOnSelectCallback([$this, 'onSelectConfiguration']);
 
-        // Method field
-        $methodLabel = Label::create('Method:');
-        $this->entries['method'] = Entry::create();
-        Entry::setText($this->entries['method'], 'GET');
-        Box::append($this->formBox, $methodLabel, false);
-        Box::append($this->formBox, $this->entries['method'], false);
+        $tableControl = $this->configTable->createTable();
+        Box::append($this->vbox, $tableControl, true);
 
-        // Connections field
-        $connectionsLabel = Label::create('Connections:');
-        $this->entries['connections'] = Entry::create();
-        Entry::setText($this->entries['connections'], '10');
-        Box::append($this->formBox, $connectionsLabel, false);
-        Box::append($this->formBox, $this->entries['connections'], false);
+        // Set window content
+        Window::setChild($this->window, $this->vbox);
 
-        // Duration field
-        $durationLabel = Label::create('Duration (seconds):');
-        $this->entries['duration'] = Entry::create();
-        Entry::setText($this->entries['duration'], '10');
-        Box::append($this->formBox, $durationLabel, false);
-        Box::append($this->formBox, $this->entries['duration'], false);
-
-        // Timeout field
-        $timeoutLabel = Label::create('Timeout (seconds):');
-        $this->entries['timeout'] = Entry::create();
-        Entry::setText($this->entries['timeout'], '30');
-        Box::append($this->formBox, $timeoutLabel, false);
-        Box::append($this->formBox, $this->entries['timeout'], false);
-
-        // Headers field (multiline)
-        $headersLabel = Label::create('Headers:');
-        $this->entries['headers'] = \Kingbes\Libui\MultilineEntry::create();
-        \Kingbes\Libui\MultilineEntry::setText($this->entries['headers'], "Content-Type: application/json\nUser-Agent: OHA-GUI-Tool");
-        Box::append($this->formBox, $headersLabel, false);
-        Box::append($this->formBox, $this->entries['headers'], false);
-
-        // Body field (multiline)
-        $bodyLabel = Label::create('Request Body:');
-        $this->entries['body'] = \Kingbes\Libui\MultilineEntry::create();
-        \Kingbes\Libui\MultilineEntry::setText($this->entries['body'], '{"key": "value"}');
-        Box::append($this->formBox, $bodyLabel, false);
-        Box::append($this->formBox, $this->entries['body'], false);
-
-        // Buttons
-        $buttonBox = Box::newHorizontalBox();
-        Box::setPadded($buttonBox, true);
-
-        $this->saveButton = Button::create('Add');
-        $this->resetButton = Button::create('Reset');
-
-        Box::append($buttonBox, $this->saveButton, false);
-        Box::append($buttonBox, $this->resetButton, false);
-
-        Box::append($this->formBox, $buttonBox, false);
-        Box::append($this->formBox, Separator::createHorizontal(), false);
-
-        // Event handlers
-        Button::onClicked($this->saveButton, function () {
-            $this->onSaveConfiguration();
-        });
-
-        Button::onClicked($this->resetButton, function () {
-            $this->resetForm();
-        });
-
-        // Name change handler to toggle between Add/Update
-        Entry::onChanged($this->entries['name'], function ($entry) {
-            $this->onNameChanged();
-        });
+        // Load configurations into table
+        $this->refreshTable();
     }
 
     /**
-     * Create the table section
-     *
-     * @return void
+     * Create header section with add button
      */
-    private function createTable(): void
+    private function createHeaderSection(): void
     {
-        // Table model handler
-        $getTableModelHandler = function () {
-            return Table::modelHandler(
-                9, // 9 columns: Name, URL, Method, Connections, Duration, Timeout, Headers, Body, Actions
-                TableValueType::String,
-                count($this->configurations),
-                function ($handler, $row, $column) {
-                    if ($row >= count($this->configurations)) {
-                        return Table::createValueStr('');
-                    }
+        // Create horizontal box for header
+        $headerHBox = Box::newHorizontalBox();
+        Box::setPadded($headerHBox, true);
 
-                    $config = array_values($this->configurations)[$row];
-                    switch ($column) {
-                        case 0:
-                            return Table::createValueStr($config['name'] ?? '');
-                        case 1:
-                            return Table::createValueStr($config['url'] ?? '');
-                        case 2:
-                            return Table::createValueStr($config['method'] ?? '');
-                        case 3:
-                            return Table::createValueStr((string)($config['concurrentConnections'] ?? ''));
-                        case 4:
-                            return Table::createValueStr((string)($config['duration'] ?? ''));
-                        case 5:
-                            return Table::createValueStr((string)($config['timeout'] ?? ''));
-                        case 6:
-                            // Format headers for display
-                            $headers = $config['headers'] ?? [];
-                            $headerCount = count($headers);
-                            return Table::createValueStr($headerCount > 0 ? "$headerCount headers" : "None");
-                        case 7:
-                            // Format body for display
-                            $body = $config['body'] ?? '';
-                            $bodyLength = strlen($body);
-                            return Table::createValueStr($bodyLength > 0 ? "$bodyLength chars" : "Empty");
-                        case 8:
-                            return Table::createValueStr('Select');
-                        default:
-                            return Table::createValueStr('');
-                    }
-                },
-                function ($handler, $row, $column, $v) {
-                    // Handle button click in the last column
-                    if ($column == 8 && $row < count($this->configurations)) {
-                        // Get the configuration name from the table data
-                        $configKeys = array_keys($this->configurations);
-                        if ($row < count($configKeys)) {
-                            $configKey = $configKeys[$row];
-                            $configData = $this->configurations[$configKey];
-                            $name = $configData['name'];
-                            
-                            // Load the configuration
-                            $config = $this->configManager->loadConfiguration($name);
-                            if ($config) {
-                                // Update the main window combobox through callback
-                                if ($this->onCloseCallback) {
-                                    // Pass the selected configuration name to the callback
-                                    ($this->onCloseCallback)($name, $config);
-                                }
-                                
-                                // Hide the configuration window
-                                $this->hide();
-                            }
-                        }
-                    }
-                }
-            );
+        // Add "新增" (Add New) button
+        $this->addButton = Button::create("新增");
+        Box::append($headerHBox, $this->addButton, false);
+
+        // Add "导入" (Import) button
+        $importButton = Button::create("导入");
+        $importCallback = function() {
+            $this->onImportClick();
         };
+        Button::onClicked($importButton, $importCallback);
+        Box::append($headerHBox, $importButton, false);
 
-        $this->tableModel = Table::createModel($getTableModelHandler());
-        $this->table = Table::create($this->tableModel, -1);
-        Table::appendTextColumn($this->table, 'Name', 0, false);
-        Table::appendTextColumn($this->table, 'URL', 1, false);
-        Table::appendTextColumn($this->table, 'Method', 2, false);
-        Table::appendTextColumn($this->table, 'Connections', 3, false);
-        Table::appendTextColumn($this->table, 'Duration', 4, false);
-        Table::appendTextColumn($this->table, 'Timeout', 5, false);
-        Table::appendTextColumn($this->table, 'Headers', 6, false);
-        Table::appendTextColumn($this->table, 'Body', 7, false);
+        // Add spacer
+        $spacer = Label::create("");
+        Box::append($headerHBox, $spacer, true);
 
-        Table::appendButtonColumn($this->table, 'Action', 8, false);
+        // Add header to main layout
+        Box::append($this->vbox, $headerHBox, false);
 
-        // Note: Row click handlers are not supported in this version of libui
-        // Editing and deletion will be handled through separate buttons
-
-        Box::append($this->formBox, $this->table, true);
+        // Add separator
+        $separator = Separator::createHorizontal();
+        Box::append($this->vbox, $separator, false);
     }
 
     /**
-     * Parse headers from multiline text
-     *
-     * @param string $headersText
-     * @return array
+     * Setup event handlers
      */
-    private function parseHeaders(string $headersText): array
+    private function setupEventHandlers(): void
     {
-        $headers = [];
-        $lines = explode("\n", $headersText);
+        // Window closing callback
+        $closingCallback = function() {
+            return $this->onClosing();
+        };
+        Window::onClosing($this->window, $closingCallback);
 
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if (empty($line)) continue;
-
-            $parts = explode(':', $line, 2);
-            if (count($parts) === 2) {
-                $key = trim($parts[0]);
-                $value = trim($parts[1]);
-                if (!empty($key)) {
-                    $headers[$key] = $value;
-                }
-            }
-        }
-
-        return $headers;
+        // Add button callback
+        $addCallback = function() {
+            $this->onAddNewClick();
+        };
+        Button::onClicked($this->addButton, $addCallback);
     }
 
     /**
-     * Format headers array to multiline text
-     *
-     * @param array $headers
-     * @return string
-     */
-    private function formatHeaders(array $headers): string
-    {
-        $lines = [];
-        foreach ($headers as $key => $value) {
-            $lines[] = "$key: $value";
-        }
-        return implode("\n", $lines);
-    }
-
-    /**
-     * Refresh the configurations list
-     *
-     * @return void
-     */
-    private function refreshConfigurations(): void
-    {
-        $this->configurations = $this->configManager->listConfigurations();
-        
-        // Debug: Log the number of configurations
-        error_log("Refreshing configurations. Count: " . count($this->configurations));
-
-        // Note: We can't directly get the number of rows in the table model
-        // In a real implementation, we would need to track this ourselves
-        // For now, we'll just repopulate the table model
-        // This may cause issues if the number of configurations changes
-        // A better approach would be to recreate the entire table
-    }
-
-    /**
-     * Show the window
-     *
-     * @return void
+     * Show the management window
      */
     public function show(): void
     {
+        if ($this->window === null) {
+            return;
+        }
+        
+        // Refresh table before showing
+        $this->refreshTable();
         Control::show($this->window);
+        
+        // Bring to front
+        Window::setTitle($this->window, "配置管理");
     }
 
     /**
-     * Hide the window
-     *
-     * @return void
+     * Hide the management window
      */
     public function hide(): void
     {
+        if ($this->window === null) {
+            return;
+        }
         Control::hide($this->window);
     }
 
     /**
-     * Handle window closing
-     *
-     * @return int
+     * Handle window closing event
+     * 
+     * @return bool true to allow closing
      */
-    private function onWindowClosing(): int
+    public function onClosing(): bool
     {
         $this->hide();
-
-        if ($this->onCloseCallback) {
-            // Instead of just calling the callback, we'll trigger a full refresh
-            // by passing a special parameter indicating a refresh is needed
-            ($this->onCloseCallback)('refresh', null);
-        }
-
-        return 0; // Prevent actual window destruction to allow reuse
+        return false; // Don't destroy window, just hide it
     }
 
     /**
-     * Set callback for window close event
-     *
-     * @param callable $callback
-     * @return void
+     * Handle add new configuration button click
      */
-    public function setOnCloseCallback(callable $callback): void
+    public function onAddNewClick(): void
     {
-        $this->onCloseCallback = $callback;
+        if ($this->configDialog === null) {
+            $this->configDialog = new ConfigurationDialog();
+            $this->configDialog->setOnSaveCallback([$this, 'onConfigurationSaved']);
+        }
+
+        $this->configDialog->showAddDialog();
     }
 
     /**
-     * Handle save configuration
-     *
-     * @return void
+     * Handle import configuration button click
      */
-    private function onSaveConfiguration(): void
+    public function onImportClick(): void
     {
-        $name = trim(Entry::text($this->entries['name']));
-        if (empty($name)) {
-            // Show error - name is required
-            return;
+        \OhaGui\GUI\ImportExportDialog::showImport([$this, 'onConfigurationImported']);
+    }
+
+    /**
+     * Handle configuration imported event
+     * 
+     * @param string $configName
+     */
+    public function onConfigurationImported(string $configName): void
+    {
+        // Refresh the table to show imported configuration
+        $this->refreshTable();
+        
+        // Notify that configurations have changed
+        if ($this->onConfigurationChangedCallback !== null) {
+            ($this->onConfigurationChangedCallback)();
+        }
+    }
+
+    /**
+     * Handle edit configuration request
+     * 
+     * @param string $configName
+     */
+    public function onEditConfiguration(string $configName): void
+    {
+        try {
+            $config = $this->configManager->loadConfiguration($configName);
+            if ($config === null) {
+                $this->showError("Configuration not found: " . $configName);
+                return;
+            }
+
+            if ($this->configDialog === null) {
+                $this->configDialog = new ConfigurationDialog();
+                $this->configDialog->setOnSaveCallback([$this, 'onConfigurationSaved']);
+            }
+
+            $this->configDialog->showEditDialog($config);
+
+        } catch (Throwable $e) {
+            $this->showError("Failed to load configuration: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Handle delete configuration request
+     * 
+     * @param string $configName
+     */
+    public function onDeleteConfiguration(string $configName): void
+    {
+        // Show confirmation dialog
+        $this->showDeleteConfirmation($configName);
+    }
+
+    /**
+     * Handle select configuration request
+     * 
+     * @param string $configName
+     */
+    public function onSelectConfiguration(string $configName): void
+    {
+        // Call callback if set
+        if ($this->onConfigurationSelectedCallback !== null) {
+            ($this->onConfigurationSelectedCallback)($configName);
         }
 
-        // Get values from form
-        $url = Entry::text($this->entries['url']);
-        $method = Entry::text($this->entries['method']);
-        $connections = (int)Entry::text($this->entries['connections']);
-        $duration = (int)Entry::text($this->entries['duration']);
-        $timeout = (int)Entry::text($this->entries['timeout']);
+        // Hide the management window
+        $this->hide();
+    }
 
-        // Get headers and body
-        $headersText = \Kingbes\Libui\MultilineEntry::text($this->entries['headers']);
-        $headers = $this->parseHeaders($headersText);
-        $body = \Kingbes\Libui\MultilineEntry::text($this->entries['body']);
+    /**
+     * Handle configuration saved event
+     * 
+     * @param string $configName
+     */
+    public function onConfigurationSaved(string $configName): void
+    {
+        // Refresh the table to show updated configurations
+        $this->refreshTable();
+        
+        // Notify that configurations have changed
+        if ($this->onConfigurationChangedCallback !== null) {
+            ($this->onConfigurationChangedCallback)();
+        }
+    }
 
-        // Create configuration object
-        $config = new TestConfiguration(
-            $name,
-            $url,
-            $method,
-            $connections,
-            $duration,
-            $timeout,
-            $headers,
-            $body
+    /**
+     * Show delete confirmation dialog
+     * 
+     * @param string $configName
+     */
+    private function showDeleteConfirmation(string $configName): void
+    {
+        ConfirmationDialog::showDeleteConfirmation(
+            $configName,
+            function() use ($configName) {
+                $this->performDelete($configName);
+            }
         );
+    }
 
-        // Validate configuration
-        $errors = $config->validate();
-        if (!empty($errors)) {
-            // Show validation errors
-            return;
-        }
-
-        // Check if we're updating or creating
-        $isUpdate = $this->editingConfigName !== null && $this->editingConfigName === $name;
-
+    /**
+     * Perform the actual configuration deletion
+     * 
+     * @param string $configName
+     */
+    private function performDelete(string $configName): void
+    {
         try {
-            // Save configuration (will update if exists, create if not)
-            $success = $this->configManager->saveConfiguration($name, $config);
-
+            $success = $this->configManager->deleteConfiguration($configName);
+            
             if ($success) {
-                error_log("Configuration saved successfully: " . $name);
-                // Refresh configurations list
-                $this->refreshConfigurations();
-
-                // Reset form only if we were editing this configuration
-                if ($isUpdate) {
-                    $this->resetForm();
-                } else {
-                    // Clear name field but keep other values for quick successive saves
-                    Entry::setText($this->entries['name'], '');
+                // Refresh table to remove deleted configuration
+                $this->refreshTable();
+                
+                // Notify that configurations have changed
+                if ($this->onConfigurationChangedCallback !== null) {
+                    ($this->onConfigurationChangedCallback)();
                 }
             } else {
-                error_log("Failed to save configuration: " . $name);
-                // Show error - failed to save
-                // In a real implementation, you would show an error message to the user
+                $this->showError("Failed to delete configuration: " . $configName);
             }
-        } catch (Exception $e) {
-            error_log("Exception while saving configuration: " . $e->getMessage());
-            // Show error
-            // In a real implementation, you would show an error message to the user
+
+        } catch (Throwable $e) {
+            $this->showError("Error deleting configuration: " . $e->getMessage());
         }
     }
 
     /**
-     * Reset the form
-     *
-     * @return void
+     * Refresh the configuration table
      */
-    private function resetForm(): void
+    public function refreshTable(): void
     {
-        foreach ($this->entries as $key => $entry) {
-            if ($key === 'url') {
-                Entry::setText($entry, 'http://localhost:8080');
-            } elseif ($key === 'method') {
-                Entry::setText($entry, 'GET');
-            } elseif ($key === 'connections') {
-                Entry::setText($entry, '10');
-            } elseif ($key === 'duration') {
-                Entry::setText($entry, '10');
-            } elseif ($key === 'timeout') {
-                Entry::setText($entry, '30');
-            } elseif ($key === 'headers') {
-                \Kingbes\Libui\MultilineEntry::setText($entry, "Content-Type: application/json\nUser-Agent: OHA-GUI-Tool");
-            } elseif ($key === 'body') {
-                \Kingbes\Libui\MultilineEntry::setText($entry, '{"key": "value"}');
-            } else {
-                Entry::setText($entry, '');
-            }
-        }
+        if ($this->configTable !== null) {
+            try {
+                $configurations = $this->configManager->listConfigurations();
+                $configData = [];
 
-        $this->editingConfigName = null;
-        Button::setText($this->saveButton, 'Add');
-    }
-
-    /**
-     * Handle name field change
-     *
-     * @return void
-     */
-    private function onNameChanged(): void
-    {
-        $name = trim(Entry::text($this->entries['name']));
-        if (!empty($name) && $this->configManager->configurationExists($name) && $name !== $this->editingConfigName) {
-            Button::setText($this->saveButton, 'Update');
-        } else if (!empty($name) && $name === $this->editingConfigName) {
-            Button::setText($this->saveButton, 'Update');
-        } else {
-            Button::setText($this->saveButton, 'Add');
-        }
-    }
-
-    /**
-     * Edit a configuration
-     *
-     * @param int $row Row index in the table
-     * @return void
-     */
-    private function editConfiguration(int $row): void
-    {
-        if ($row >= count($this->configurations)) {
-            return;
-        }
-
-        // Get the configuration name from the table data
-        $configKeys = array_keys($this->configurations);
-        if ($row >= count($configKeys)) {
-            return;
-        }
-
-        $configKey = $configKeys[$row];
-        $configData = $this->configurations[$configKey];
-        $name = $configData['name'];
-
-        try {
-            $config = $this->configManager->loadConfiguration($name);
-            if ($config) {
-                // Populate form with configuration data
-                Entry::setText($this->entries['name'], $config->name);
-                Entry::setText($this->entries['url'], $config->url);
-                Entry::setText($this->entries['method'], $config->method);
-                Entry::setText($this->entries['connections'], (string)$config->concurrentConnections);
-                Entry::setText($this->entries['duration'], (string)$config->duration);
-                Entry::setText($this->entries['timeout'], (string)$config->timeout);
-
-                // Populate headers and body
-                \Kingbes\Libui\MultilineEntry::setText($this->entries['headers'], $this->formatHeaders($config->headers));
-                \Kingbes\Libui\MultilineEntry::setText($this->entries['body'], $config->body);
-
-                // Set editing state
-                $this->editingConfigName = $name;
-                Button::setText($this->saveButton, 'Update');
-
-                // Update button state
-                $this->onNameChanged();
-            }
-        } catch (Exception $e) {
-            // Show error
-        }
-    }
-
-    /**
-     * Delete a configuration by name
-     *
-     * @param string $name Configuration name
-     * @return void
-     */
-    public function deleteConfiguration(string $name): void
-    {
-        try {
-            $success = $this->configManager->deleteConfiguration($name);
-            if ($success) {
-                // Refresh configurations list
-                $this->refreshConfigurations();
-
-                // If we were editing this configuration, reset the form
-                if ($this->editingConfigName === $name) {
-                    $this->resetForm();
+                foreach ($configurations as $configName) {
+                    $config = $this->configManager->loadConfiguration($configName);
+                    if ($config !== null) {
+                        $configData[$configName] = $config;
+                    }
                 }
+
+                $this->configTable->populateTable($configData);
+
+            } catch (Throwable $e) {
+                error_log("Failed to refresh configuration table: " . $e->getMessage());
             }
-        } catch (Exception $e) {
-            // Show error
         }
     }
 
     /**
-     * Delete a configuration by row index
-     *
-     * @param int $row Row index in the table
-     * @return void
+     * Show error message
+     * 
+     * @param string $message
      */
-    private function deleteSelectedConfiguration(int $row): void
+    private function showError(string $message): void
     {
-        if ($row >= count($this->configurations)) {
-            return;
-        }
-
-        // Get the configuration name from the table data
-        $configKeys = array_keys($this->configurations);
-        if ($row >= count($configKeys)) {
-            return;
-        }
-
-        $configKey = $configKeys[$row];
-        $configData = $this->configurations[$configKey];
-        $name = $configData['name'];
-
-        // Confirm deletion
-        // In a full implementation, you would show a confirmation dialog
-        // For now, we'll just proceed with deletion
-
-        $this->deleteConfiguration($name);
+        error_log("Configuration Manager Error: " . $message);
+        // In a full implementation, this would show a proper error dialog
     }
 
     /**
-     * Add action buttons to table rows
-     *
-     * @return void
+     * Set callback for configuration selection
+     * 
+     * @param callable $callback
      */
-    private function addTableActionButtons(): void
+    public function setOnConfigurationSelectedCallback(callable $callback): void
     {
-        // This method would add edit/delete buttons to each row in the table
-        // Since libui doesn't directly support buttons in table cells, we'll handle this through row clicks
-        // The edit functionality is already implemented in the row click handler
+        $this->onConfigurationSelectedCallback = $callback;
+    }
+
+    /**
+     * Set callback for when configurations are changed (added/deleted/modified)
+     * 
+     * @param callable $callback
+     */
+    public function setOnConfigurationChangedCallback(callable $callback): void
+    {
+        $this->onConfigurationChangedCallback = $callback;
     }
 
     /**
      * Get the window control
-     *
-     * @return CData
+     * 
+     * @return mixed
      */
-    public function getWindow(): CData
+    public function getWindow()
     {
         return $this->window;
+    }
+
+    /**
+     * Check if window is visible
+     * 
+     * @return bool
+     */
+    public function isVisible(): bool
+    {
+        if ($this->window === null) {
+            return false;
+        }
+        return Control::visible($this->window);
+    }
+
+    /**
+     * Cleanup resources
+     */
+    public function cleanup(): void
+    {
+        try {
+            // Cleanup child components
+            if ($this->configTable !== null) {
+                $this->configTable->cleanup();
+                $this->configTable = null;
+            }
+
+            if ($this->configDialog !== null) {
+                $this->configDialog->cleanup();
+                $this->configDialog = null;
+            }
+
+            // Clear other references
+            $this->vbox = null;
+            $this->addButton = null;
+            $this->configManager = null;
+            $this->onConfigurationSelectedCallback = null;
+            $this->onConfigurationChangedCallback = null;
+
+            // Cleanup window
+            if ($this->window !== null) {
+//                Control::destroy($this->window);
+                $this->window = null;
+            }
+
+        } catch (Throwable $e) {
+            error_log("ConfigurationManagerWindow cleanup error: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Destructor
+     */
+    public function __destruct()
+    {
+        $this->cleanup();
     }
 }

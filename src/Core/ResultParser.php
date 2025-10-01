@@ -3,43 +3,61 @@
 namespace OhaGui\Core;
 
 use OhaGui\Models\TestResult;
+use OhaGui\Models\TestConfiguration;
 use DateTime;
 
 /**
- * Result Parser
- * Parses oha output and extracts performance metrics
+ * ResultParser - Parses oha command output and extracts performance metrics
+ * 
+ * This class implements regex patterns to parse oha output based on the tech.md
+ * specifications and extracts key performance metrics like requests per second,
+ * total requests, and success rate.
  */
 class ResultParser
 {
     /**
      * Parse oha output and create TestResult object
      * 
-     * @param string $output Raw oha output
-     * @return TestResult Parsed test result
+     * @param string $output The raw output from oha command
+     * @param TestConfiguration|null $config The test configuration (optional)
+     * @return TestResult Parsed test result with extracted metrics
      */
-    public function parseOutput($output)
+    public function parseOutput(string $output, ?TestConfiguration $config = null): TestResult
     {
+        $testResult = new TestResult();
+        $testResult->rawOutput = $output;
+        $testResult->executedAt = new DateTime();
+        
+        // Extract metrics using regex patterns based on tech.md specifications
         $metrics = $this->extractMetrics($output);
         
-        $result = new TestResult();
-        $result->requestsPerSecond = $metrics['requestsPerSecond'] ?? 0.0;
-        $result->totalRequests = $metrics['totalRequests'] ?? 0;
-        $result->failedRequests = $metrics['failedRequests'] ?? 0;
-        $result->successRate = $metrics['successRate'] ?? 0.0;
-        $result->rawOutput = $output;
-        $result->executedAt = new DateTime();
+        // If we have a configuration, we can calculate or get additional metrics
+        if ($config !== null) {
+            $metrics = $this->enhanceMetricsWithConfig($metrics, $config);
+        }
         
-        return $result;
+        // Populate TestResult object with extracted metrics
+        $testResult->requestsPerSecond = $metrics['requestsPerSecond'] ?? 0.0;
+        $testResult->totalRequests = $metrics['totalRequests'] ?? 0;
+        $testResult->failedRequests = $metrics['failedRequests'] ?? 0;
+        $testResult->successRate = $metrics['successRate'] ?? 0.0;
+        
+        return $testResult;
     }
-
+    
     /**
-     * Extract key metrics from oha output using regex patterns
-     * Based on tech.md specifications
+     * Extract performance metrics from oha output using regex patterns
      * 
-     * @param string $output Raw oha output
-     * @return array Extracted metrics
+     * Based on tech.md, oha output contains patterns like:
+     * - "Requests/sec: 299.0098"
+     * - "Success rate: 95.50%"
+     * - Status code distribution with total requests count
+     * - Error distribution with failed requests count
+     * 
+     * @param string $output The raw oha output
+     * @return array Associative array with extracted metrics
      */
-    private function extractMetrics($output)
+    private function extractMetrics(string $output): array
     {
         $metrics = [
             'requestsPerSecond' => 0.0,
@@ -47,276 +65,261 @@ class ResultParser
             'failedRequests' => 0,
             'successRate' => 0.0
         ];
-
-        // Parse using the regex pattern from tech.md
-        preg_match_all('/Success rate:\s*(\d+\.\d+)%|Total:\s*(\d+)\s+requests|Requests\/sec:\s*(\d+\.\d+)/im', $output, $matches);
-        
-        // Extract success rate
-        if (!empty($matches[1])) {
-            foreach ($matches[1] as $match) {
-                if (!empty($match)) {
-                    $metrics['successRate'] = (float)$match;
-                    break;
-                }
-            }
-        }
-        
-        // Extract total requests
-        if (!empty($matches[2])) {
-            foreach ($matches[2] as $match) {
-                if (!empty($match)) {
-                    $metrics['totalRequests'] = (int)$match;
-                    break;
-                }
-            }
-        }
         
         // Extract requests per second
-        if (!empty($matches[3])) {
-            foreach ($matches[3] as $match) {
-                if (!empty($match)) {
-                    $metrics['requestsPerSecond'] = (float)$match;
-                    break;
+        if (preg_match('/Requests\/sec:\s*(\d+(?:\.\d+)?)/i', $output, $matches)) {
+            $metrics['requestsPerSecond'] = (float)$matches[1];
+        }
+        
+        // Extract success rate
+        if (preg_match('/Success rate:\s*(\d+(?:\.\d+)?)%/i', $output, $matches)) {
+            $metrics['successRate'] = (float)$matches[1];
+        }
+        
+        // Extract total requests from status code distribution
+        // Look for patterns like "[200] 4579 responses"
+        if (preg_match_all('/\[\d+\]\s*(\d+)\s+responses/', $output, $matches)) {
+            $totalRequests = 0;
+            foreach ($matches[1] as $count) {
+                $totalRequests += (int)$count;
+            }
+            $metrics['totalRequests'] = $totalRequests;
+        }
+        
+        // Extract failed requests from error distribution
+        // Look for patterns like "[14] connection closed before message completed"
+        // Only match lines in the "Error distribution" section
+        if (preg_match('/Error distribution:\s*(.*?)\s*(?:\n\s*\n|$)/s', $output, $errorSection)) {
+            if (preg_match_all('/^\s*\[(\d+)\]\s+.+$/m', $errorSection[1], $matches)) {
+                $failedRequests = 0;
+                foreach ($matches[1] as $count) {
+                    $failedRequests += (int)$count;
                 }
+                $metrics['failedRequests'] = $failedRequests;
             }
         }
-
-        // Calculate failed requests from success rate and total requests
-        if ($metrics['totalRequests'] > 0 && $metrics['successRate'] < 100.0) {
-            $successfulRequests = (int)($metrics['totalRequests'] * ($metrics['successRate'] / 100.0));
+        
+        // If we still don't have total requests, try alternative patterns
+        if ($metrics['totalRequests'] == 0) {
+            // Try to get total requests from "N requests" pattern
+            if (preg_match('/(\d+)\s+requests/i', $output, $matches)) {
+                $metrics['totalRequests'] = (int)$matches[1];
+            }
+        }
+        
+        // If we don't have failed requests from error distribution, 
+        // calculate from success rate and total requests
+        if ($metrics['failedRequests'] == 0 && $metrics['totalRequests'] > 0) {
+            // Use more precise calculation for high precision success rates
+            $successRate = $metrics['successRate'] / 100;
+            $successfulRequests = (int)floor($metrics['totalRequests'] * $successRate + 0.5);
             $metrics['failedRequests'] = $metrics['totalRequests'] - $successfulRequests;
         }
-
-        // Try alternative parsing patterns for different oha output formats
-        if ($metrics['requestsPerSecond'] == 0.0) {
-            $metrics['requestsPerSecond'] = $this->parseRequestsPerSecond($output);
+        
+        // Try alternative parsing patterns if we're missing key metrics
+        if ($metrics['requestsPerSecond'] == 0.0 || $metrics['totalRequests'] == 0) {
+            $alternativeMetrics = $this->tryAlternativePatterns($output);
+            $metrics = array_merge($metrics, $alternativeMetrics);
         }
         
-        if ($metrics['totalRequests'] == 0) {
-            $metrics['totalRequests'] = $this->parseTotalRequests($output);
-        }
-        
-        if ($metrics['successRate'] == 0.0) {
-            $metrics['successRate'] = $this->parseSuccessRate($output);
-        }
-
         return $metrics;
     }
-
+    
     /**
-     * Parse requests per second with alternative patterns
-     * 
-     * @param string $output Raw output
-     * @return float Requests per second
+     * Try alternative regex patterns for different oha output formats
      */
-    private function parseRequestsPerSecond($output)
-    {
-        // Try different patterns for requests per second
-        $patterns = [
-            '/Requests\/sec:\s*(\d+\.?\d*)/i',
-            '/(\d+\.?\d*)\s*requests?\/sec/i',
-            '/RPS:\s*(\d+\.?\d*)/i',
-            '/req\/s:\s*(\d+\.?\d*)/i',
-            '/Reqs\/sec\s+(\d+\.?\d*)/i'  // Added pattern for "Reqs/sec      123.45"
-        ];
-        
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $output, $matches)) {
-                return (float)$matches[1];
-            }
-        }
-        
-        return 0.0;
-    }
-
-    /**
-     * Parse total requests with alternative patterns
-     * 
-     * @param string $output Raw output
-     * @return int Total requests
-     */
-    private function parseTotalRequests($output)
-    {
-        // Try different patterns for total requests
-        $patterns = [
-            '/Total:\s*(\d+)\s*requests?/i',
-            '/(\d+)\s*total\s*requests?/i',
-            '/Completed\s*(\d+)\s*requests?/i',
-            '/(\d+)\s*requests?\s*completed/i'
-        ];
-        
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $output, $matches)) {
-                return (int)$matches[1];
-            }
-        }
-        
-        return 0;
-    }
-
-    /**
-     * Parse success rate with alternative patterns
-     * 
-     * @param string $output Raw output
-     * @return float Success rate percentage
-     */
-    private function parseSuccessRate($output)
-    {
-        // Try different patterns for success rate
-        $patterns = [
-            '/Success rate:\s*(\d+\.?\d*)%/i',
-            '/(\d+\.?\d*)%\s*success/i',
-            '/Success:\s*(\d+\.?\d*)%/i'
-        ];
-        
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $output, $matches)) {
-                return (float)$matches[1];
-            }
-        }
-        
-        // If no explicit success rate, try to calculate from error information
-        if (preg_match('/(\d+)\s*errors?/i', $output, $errorMatches)) {
-            $errors = (int)$errorMatches[1];
-            $total = $this->parseTotalRequests($output);
-            
-            if ($total > 0) {
-                return ((float)($total - $errors) / $total) * 100.0;
-            }
-        }
-        
-        // Default to 100% if no errors found and we have successful requests
-        if ($this->parseTotalRequests($output) > 0) {
-            return 100.0;
-        }
-        
-        return 0.0;
-    }
-
-    /**
-     * Parse additional metrics like response times, latency percentiles
-     * 
-     * @param string $output Raw output
-     * @return array Additional metrics
-     */
-    public function parseAdditionalMetrics($output)
+    private function tryAlternativePatterns(string $output): array
     {
         $metrics = [];
         
-        // Parse average response time
-        if (preg_match('/Average:\s*(\d+\.?\d*)\s*(ms|s)/i', $output, $matches)) {
-            $time = (float)$matches[1];
-            $unit = strtolower($matches[2]);
-            
-            // Convert to milliseconds
-            if ($unit === 's') {
-                $time *= 1000;
-            }
-            
-            $metrics['averageResponseTime'] = $time;
+        // Pattern 1: Look for "Requests/sec" with various formats
+        if (preg_match('/Requests?\/sec(?:ond)?:?\s*(\d+(?:\.\d+)?)/i', $output, $matches)) {
+            $metrics['requestsPerSecond'] = (float)$matches[1];
         }
         
-        // Parse latency percentiles
-        $percentilePatterns = [
-            '50%' => '/50%.*?(\d+\.?\d*)\s*(ms|s)/i',
-            '90%' => '/90%.*?(\d+\.?\d*)\s*(ms|s)/i',
-            '95%' => '/95%.*?(\d+\.?\d*)\s*(ms|s)/i',
-            '99%' => '/99%.*?(\d+\.?\d*)\s*(ms|s)/i'
-        ];
-        
-        foreach ($percentilePatterns as $percentile => $pattern) {
-            if (preg_match($pattern, $output, $matches)) {
-                $time = (float)$matches[1];
-                $unit = strtolower($matches[2]);
-                
-                // Convert to milliseconds
-                if ($unit === 's') {
-                    $time *= 1000;
-                }
-                
-                $metrics['latency' . $percentile] = $time;
-            }
+        // Pattern 2: Look for total requests in different formats
+        if (preg_match('/(?:Total|Completed):?\s*(\d+)\s*(?:requests?|reqs?)/i', $output, $matches)) {
+            $metrics['totalRequests'] = (int)$matches[1];
         }
         
-        // Parse data transfer information
-        if (preg_match('/(\d+\.?\d*)\s*(KB|MB|GB)\/s/i', $output, $matches)) {
-            $rate = (float)$matches[1];
-            $unit = strtoupper($matches[2]);
-            
-            // Convert to KB/s
-            switch ($unit) {
-                case 'MB':
-                    $rate *= 1024;
-                    break;
-                case 'GB':
-                    $rate *= 1024 * 1024;
-                    break;
-            }
-            
-            $metrics['dataTransferRate'] = $rate;
+        // Pattern 3: Look for success rate in different formats
+        if (preg_match('/Success(?:\s+rate)?:?\s*(\d+(?:\.\d+)?)%/i', $output, $matches)) {
+            $metrics['successRate'] = (float)$matches[1];
+        }
+        
+        // Pattern 4: Look for failed requests directly
+        if (preg_match('/(?:Failed|Error|Timeout):?\s*(\d+)/i', $output, $matches)) {
+            $metrics['failedRequests'] = (int)$matches[1];
+        }
+        
+        // Pattern 5: Look for response time statistics (additional info)
+        if (preg_match('/Average:?\s*(\d+(?:\.\d+)?)\s*ms/i', $output, $matches)) {
+            $metrics['averageResponseTime'] = (float)$matches[1];
         }
         
         return $metrics;
     }
-
+    
     /**
-     * Format metrics for display
+     * Enhance metrics with configuration data
      * 
-     * @param TestResult $result Test result to format
-     * @return string Formatted display string
+     * @param array $metrics The extracted metrics
+     * @param TestConfiguration $config The test configuration
+     * @return array Enhanced metrics
      */
-    public function formatResultsForDisplay($result)
+    private function enhanceMetricsWithConfig(array $metrics, TestConfiguration $config): array
     {
-        $output = "Test Results:\n";
-        $output .= "=============\n\n";
+        // For now, we just return the metrics as-is
+        // In the future, we might add configuration-specific enhancements
+        return $metrics;
+    }
+    
+    /**
+     * Get formatted summary of test results
+     * 
+     * @param TestResult $result The test result to format
+     * @return string Formatted summary string
+     */
+    public function getFormattedSummary(TestResult $result): string
+    {
+        $summary = [];
         
-        $output .= sprintf("Requests per second: %.2f\n", $result->requestsPerSecond);
-        $output .= sprintf("Total requests: %d\n", $result->totalRequests);
-        $output .= sprintf("Failed requests: %d\n", $result->failedRequests);
-        $output .= sprintf("Success rate: %.2f%%\n", $result->successRate);
+        $summary[] = sprintf('Requests/sec: %.2f', $result->requestsPerSecond);
+        $summary[] = sprintf('Total requests: %d', $result->totalRequests);
         
         if ($result->totalRequests > 0) {
-            $avgTime = $result->totalRequests / max($result->requestsPerSecond, 0.001);
-            $output .= sprintf("Average time per request: %.2f ms\n", $avgTime);
+            $summary[] = sprintf('Failed requests: %d', $result->failedRequests);
+            $summary[] = sprintf('Success rate: %.2f%%', $result->successRate);
         }
         
-        $output .= sprintf("Test executed at: %s\n", $result->executedAt->format('Y-m-d H:i:s'));
-        
-        return $output;
+        return implode("\n", $summary);
     }
-
+    
     /**
-     * Get a summary of key metrics
+     * Check if the output indicates a successful test completion
      * 
-     * @param TestResult $result Test result
-     * @return array Summary metrics
+     * @param string $output The raw oha output
+     * @return bool True if test completed successfully, false otherwise
      */
-    public function getSummary($result)
+    public function isSuccessfulTest(string $output): bool
     {
-        return [
-            'rps' => number_format($result->requestsPerSecond, 2),
-            'total' => number_format($result->totalRequests),
-            'failed' => number_format($result->failedRequests),
-            'success_rate' => number_format($result->successRate, 2) . '%',
-            'executed_at' => $result->executedAt->format('Y-m-d H:i:s')
+        // Check for common success indicators in oha output
+        $successIndicators = [
+            '/Requests\/sec:\s*\d+/i',
+            '/Total:\s*\d+\s+requests/i',
+            '/Success rate:/i',
+            '/Summary:/i'
         ];
+        
+        foreach ($successIndicators as $pattern) {
+            if (preg_match($pattern, $output)) {
+                return true;
+            }
+        }
+        
+        return false;
     }
-
+    
     /**
-     * Validate if output appears to be from oha
+     * Extract error messages from oha output
      * 
-     * @param string $output Raw output to validate
-     * @return bool True if output appears to be from oha
+     * @param string $output The raw oha output
+     * @return array Array of error messages found in the output
      */
-    public function isValidOhaOutput($output)
+    public function extractErrors(string $output): array
     {
-        // Check for common oha output patterns - be very specific
+        $errors = [];
+        
+        // Common error patterns in oha output
+        $errorPatterns = [
+            '/Error:\s*(.+)/i',
+            '/Failed to connect:\s*(.+)/i',
+            '/Timeout:\s*(.+)/i',
+            '/DNS resolution failed:\s*(.+)/i',
+            '/Connection refused:\s*(.+)/i',
+            '/SSL error:\s*(.+)/i'
+        ];
+        
+        foreach ($errorPatterns as $pattern) {
+            if (preg_match_all($pattern, $output, $matches)) {
+                foreach ($matches[1] as $error) {
+                    $errors[] = trim($error);
+                }
+            }
+        }
+        
+        return array_unique($errors);
+    }
+    
+    /**
+     * Parse detailed statistics from oha output
+     * 
+     * @param string $output The raw oha output
+     * @return array Detailed statistics including percentiles, response times, etc.
+     */
+    public function parseDetailedStats(string $output): array
+    {
+        $stats = [];
+        
+        // Parse response time percentiles - handle both "50%:" and "50% in" formats
+        if (preg_match('/50%[:\s]*(?:in\s*)?(\d+(?:\.\d+)?)\s*(?:ms|secs?)/i', $output, $matches)) {
+            $stats['p50_response_time'] = (float)$matches[1];
+        }
+        
+        if (preg_match('/90%[:\s]*(?:in\s*)?(\d+(?:\.\d+)?)\s*(?:ms|secs?)/i', $output, $matches)) {
+            $stats['p90_response_time'] = (float)$matches[1];
+        }
+        
+        if (preg_match('/95%[:\s]*(?:in\s*)?(\d+(?:\.\d+)?)\s*(?:ms|secs?)/i', $output, $matches)) {
+            $stats['p95_response_time'] = (float)$matches[1];
+        }
+        
+        if (preg_match('/99%[:\s]*(?:in\s*)?(\d+(?:\.\d+)?)\s*(?:ms|secs?)/i', $output, $matches)) {
+            $stats['p99_response_time'] = (float)$matches[1];
+        }
+        
+        // Parse average response time
+        if (preg_match('/Average:?\s*(\d+(?:\.\d+)?)\s*(?:ms|secs?)/i', $output, $matches)) {
+            $stats['average_response_time'] = (float)$matches[1];
+        }
+        
+        // Parse minimum response time
+        if (preg_match('/Min:?\s*(\d+(?:\.\d+)?)\s*ms/i', $output, $matches)) {
+            $stats['min_response_time'] = (float)$matches[1];
+        }
+        
+        // Parse maximum response time
+        if (preg_match('/Max:?\s*(\d+(?:\.\d+)?)\s*ms/i', $output, $matches)) {
+            $stats['max_response_time'] = (float)$matches[1];
+        }
+        
+        // Parse data transfer information
+        if (preg_match('/Data transferred:?\s*(\d+(?:\.\d+)?)\s*([KMGT]?B)/i', $output, $matches)) {
+            $stats['data_transferred'] = $matches[1] . ' ' . $matches[2];
+        }
+        
+        // Parse transfer rate
+        if (preg_match('/Transfer rate:?\s*(\d+(?:\.\d+)?)\s*([KMGT]?B\/sec)/i', $output, $matches)) {
+            $stats['transfer_rate'] = $matches[1] . ' ' . $matches[2];
+        }
+        
+        return $stats;
+    }
+    
+    /**
+     * Validate that the output is from oha command
+     * 
+     * @param string $output The output to validate
+     * @return bool True if output appears to be from oha, false otherwise
+     */
+    public function isValidOhaOutput(string $output): bool
+    {
+        // Look for oha-specific patterns or headers
         $ohaIndicators = [
-            '/^oha\s+v\d/i',  // oha version at start of line
-            '/Requests\/sec:\s*\d/i',  // Requests/sec with number
-            '/Reqs\/sec\s+\d/i',       // Reqs/sec with number
-            '/Success rate:\s*\d/i',   // Success rate with number
-            '/Total:\s*\d+\s+requests/i'  // Total: number requests
+            '/oha\s+v?\d+/i',  // oha version info
+            '/Requests\/sec:/i',
+            '/Summary:/i',
+            '/Status code distribution:/i'
         ];
         
         foreach ($ohaIndicators as $pattern) {
@@ -325,38 +328,7 @@ class ResultParser
             }
         }
         
-        return false;
-    }
-
-    /**
-     * Extract error information from output
-     * 
-     * @param string $output Raw output
-     * @return array Error information
-     */
-    public function parseErrors($output)
-    {
-        $errors = [
-            'connection_errors' => 0,
-            'timeout_errors' => 0,
-            'read_errors' => 0,
-            'write_errors' => 0
-        ];
-        
-        // Common error patterns - more specific matching
-        $errorPatterns = [
-            'connection_errors' => '/Connection errors:\s*(\d+)/i',
-            'timeout_errors' => '/Timeout errors:\s*(\d+)/i',
-            'read_errors' => '/Read errors:\s*(\d+)/i',
-            'write_errors' => '/Write errors:\s*(\d+)/i'
-        ];
-        
-        foreach ($errorPatterns as $type => $pattern) {
-            if (preg_match($pattern, $output, $matches)) {
-                $errors[$type] = (int)$matches[1];
-            }
-        }
-        
-        return $errors;
+        // If no specific indicators found, check if it has basic metrics
+        return $this->isSuccessfulTest($output);
     }
 }

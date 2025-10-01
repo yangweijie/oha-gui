@@ -2,697 +2,575 @@
 
 namespace OhaGui\Core;
 
-use Exception;
-use OhaGui\Core\ProcessErrorHandler;
+use OhaGui\Models\TestResult;
+use OhaGui\Models\TestConfiguration;
 
 /**
- * Test Executor
- * Handles asynchronous execution of oha commands with real-time output capture
- * and comprehensive error handling
+ * TestExecutor - Handles asynchronous execution of oha commands
+ * 
+ * This class manages the execution of oha commands with real-time output capture,
+ * process monitoring, and proper cleanup functionality.
  */
 class TestExecutor
 {
-    /**
-     * Initialize TestExecutor with error handling
-     */
-    public function __construct()
-    {
-        $this->errorHandler = new ProcessErrorHandler();
-    }
     private $process = null;
-    private $pipes = [];
-    private $isRunning = false;
-    private $output = '';
-    private $exitCode = 0;
+    private array $pipes = [];
+    private bool $isRunning = false;
+    private string $outputBuffer = '';
     private $outputCallback = null;
-    private $errorCallback = null;
     private $completionCallback = null;
-    private ProcessErrorHandler $errorHandler;
-    private int $timeoutSeconds = 0;
-    private int $startTime = 0;
-    private int $maxOutputSize = 102400; // 100KB limit for output buffer
-    private int $lastReadTime = 0;
-    private int $minReadInterval = 50; // Minimum interval between reads in milliseconds
-
+    private ?int $executionTimeout = null;
+    private ?int $executionStartTime = null;
+    private ?TestConfiguration $testConfig = null;
+    
     /**
-     * Execute oha test command asynchronously with comprehensive error handling
+     * Execute oha command asynchronously with real-time output capture
      * 
      * @param string $command The oha command to execute
-     * @param callable|null $outputCallback Callback for real-time output (receives string)
-     * @param callable|null $errorCallback Callback for error handling (receives error array)
-     * @param callable|null $completionCallback Callback when test completes (receives exit code, error array)
-     * @param int $timeoutSeconds Maximum execution time (0 = no timeout)
-     * @return bool True if command started successfully
-     * @throws Exception If command execution fails to start
+     * @param TestConfiguration|null $config The test configuration (optional)
+     * @param callable|null $outputCallback Callback for real-time output (receives string output)
+     * @param callable|null $completionCallback Callback when test completes (receives TestResult)
+     * @throws \RuntimeException If command execution fails to start
      */
-    public function executeTest(
-        $command, 
-        $outputCallback = null,
-        $errorCallback = null,
-        $completionCallback = null,
-        $timeoutSeconds = 0
-    ) {
+    public function executeTest(string $command, ?TestConfiguration $config = null, ?callable $outputCallback = null, ?callable $completionCallback = null): void
+    {
         if ($this->isRunning) {
-            throw new Exception('A test is already running. Stop the current test before starting a new one.');
+            throw new \RuntimeException('A test is already running. Stop the current test before starting a new one.');
         }
-
+        
         // Validate command before execution
-        $commandValidation = $this->errorHandler->validateCommand($command);
-        if (!$commandValidation['valid']) {
-            $error = [
-                'type' => ProcessErrorHandler::ERROR_INVALID_ARGUMENTS,
-                'message' => 'Invalid command: ' . implode(', ', $commandValidation['errors']),
-                'suggestion' => 'Check the command parameters and try again'
-            ];
-            
-            if ($errorCallback) {
-                call_user_func($errorCallback, $error);
-            }
-            
-            throw new Exception($error['message']);
+        if (empty(trim($command))) {
+            throw new \InvalidArgumentException('Command cannot be empty');
         }
-
-        // Validate oha binary availability
-        $binaryValidation = $this->errorHandler->validateOhaBinary();
-        if (!$binaryValidation['available']) {
-            $error = $binaryValidation['errors'][0] ?? [
-                'type' => ProcessErrorHandler::ERROR_BINARY_NOT_FOUND,
-                'message' => 'oha binary not available',
-                'suggestion' => 'Install oha and ensure it\'s in your PATH'
-            ];
-            
-            if ($errorCallback) {
-                call_user_func($errorCallback, $error);
-            }
-            
-            throw new Exception($error['message']);
-        }
-
+        
+        // Check if oha binary exists
+        $this->validateOhaBinary($command);
+        
+        $this->testConfig = $config;
         $this->outputCallback = $outputCallback;
-        $this->errorCallback = $errorCallback;
         $this->completionCallback = $completionCallback;
-        $this->timeoutSeconds = $timeoutSeconds;
-        $this->startTime = time();
-        $this->output = '';
-        $this->exitCode = 0;
-
+        $this->outputBuffer = '';
+        
         // Define pipe descriptors for process communication
         $descriptors = [
-            0 => ['pipe', 'r'],  // stdin
-            1 => ['pipe', 'w'],  // stdout
-            2 => ['pipe', 'w']   // stderr
+            0 => ['pipe', 'r'], // stdin
+            1 => ['pipe', 'w'], // stdout
+            2 => ['pipe', 'w']  // stderr
         ];
-
-        // Start the process
-        $this->process = proc_open($command, $descriptors, $this->pipes);
-
-        if (!is_resource($this->process)) {
-            $error = [
-                'type' => ProcessErrorHandler::ERROR_PROCESS_START_FAILED,
-                'message' => 'Failed to start oha process',
-                'suggestion' => 'Check if oha is properly installed and accessible',
-                'details' => ['command' => $command]
-            ];
-            
-            if ($this->errorCallback) {
-                call_user_func($this->errorCallback, $error);
-            }
-            
-            throw new Exception($error['message'] . ': ' . $command);
-        }
-
-        // Set streams to non-blocking mode for real-time output
-        stream_set_blocking($this->pipes[1], false);
-        stream_set_blocking($this->pipes[2], false);
-
-        $this->isRunning = true;
-
-        // Close stdin as we don't need to send input
-        fclose($this->pipes[0]);
-
-        return true;
-    }
-
-    /**
-     * Check if a test is currently running
-     * 
-     * @return bool True if test is running
-     */
-    public function isRunning()
-    {
-        if (!$this->isRunning || !is_resource($this->process)) {
-            return false;
-        }
-
-        // Check for timeout
-        if ($this->timeoutSeconds > 0 && (time() - $this->startTime) >= $this->timeoutSeconds) {
-            $this->handleTimeout();
-            return false;
-        }
-
-        // Check process status
-        $status = proc_get_status($this->process);
         
-        if (!$status['running']) {
-            $this->isRunning = false;
-            $this->exitCode = $status['exitcode'];
-            
-            // Read any remaining output
-            $this->readRemainingOutput();
-            
-            // Analyze error if process failed
-            $error = null;
-            if ($this->exitCode !== 0) {
-                $error = $this->errorHandler->analyzeProcessError(
-                    $this->exitCode,
-                    $this->output,
-                    'oha command'
-                );
-                
-                if ($error && $this->errorCallback) {
-                    call_user_func($this->errorCallback, $error);
-                }
-            }
-            
-            // Close pipes and process
-            $this->cleanup();
-            
-            // Call completion callback
-            if ($this->completionCallback) {
-                // Use App::queueMain to ensure the callback is executed on the main thread
-                if (class_exists('Kingbes\\Libui\\App')) {
-                    \Kingbes\Libui\App::queueMain(function() use ($error) {
-                        call_user_func($this->completionCallback, $this->exitCode, $error);
-                    });
-                } else {
-                    call_user_func($this->completionCallback, $this->exitCode, $error);
-                }
-            }
-            
-            return false;
+        // Set environment variables for better error reporting
+        $env = $_ENV;
+        $env['LC_ALL'] = 'C'; // Ensure consistent output format
+        
+        // Start the process with error handling
+        $this->process = proc_open($command, $descriptors, $this->pipes, null, $env);
+        
+        if (!is_resource($this->process)) {
+            $error = error_get_last();
+            $errorMsg = $error ? $error['message'] : 'Unknown error';
+            throw new \RuntimeException('Failed to start oha process: ' . $errorMsg . ' (Command: ' . $command . ')');
         }
-
-        // Read available output
-        $this->readOutput();
-
-        return true;
+        
+        // Check if process started successfully
+        $status = proc_get_status($this->process);
+        if (!$status['running'] && $status['exitcode'] !== -1) {
+            $this->cleanup();
+            throw new \RuntimeException('Process failed to start or exited immediately with code: ' . $status['exitcode']);
+        }
+        
+        $this->isRunning = true;
+        
+        // Set pipes to non-blocking mode for real-time output
+        if (!stream_set_blocking($this->pipes[1], false)) {
+            $this->cleanup();
+            throw new \RuntimeException('Failed to set stdout to non-blocking mode');
+        }
+        
+        if (!stream_set_blocking($this->pipes[2], false)) {
+            $this->cleanup();
+            throw new \RuntimeException('Failed to set stderr to non-blocking mode');
+        }
+        
+        // Close stdin as we don't need to send input to oha
+        fclose($this->pipes[0]);
+        unset($this->pipes[0]);
+        
+        // Start monitoring the process
+        $this->monitorProcess();
     }
-
+    
     /**
      * Stop the currently running test
      * 
-     * @return bool True if test was stopped successfully
+     * @return bool True if test was stopped successfully, false if no test was running
      */
-    public function stopTest()
+    public function stopTest(): bool
     {
         if (!$this->isRunning || !is_resource($this->process)) {
-            return true;
+            return false;
         }
-
+        
         // Terminate the process
         $terminated = proc_terminate($this->process);
         
         if ($terminated) {
-            // Wait a moment for graceful termination
-            usleep(100000); // 100ms
+            $this->cleanup();
             
-            // Force kill if still running
-            $status = proc_get_status($this->process);
-            if ($status['running']) {
-                proc_terminate($this->process, 9); // SIGKILL
+            // Call output callback with termination message
+            if ($this->outputCallback) {
+                call_user_func($this->outputCallback, "\n[Test stopped by user]\n");
             }
         }
-
-        $this->isRunning = false;
         
-        // Call completion callback with exit code -1 to indicate test was stopped
-        if ($this->completionCallback) {
-            // Use App::queueMain to ensure the callback is executed on the main thread
-            if (class_exists('Kingbes\\Libui\\App')) {
-                \Kingbes\Libui\App::queueMain(function() {
-                    call_user_func($this->completionCallback, -1, [
-                        'type' => 'test_stopped',
-                        'message' => 'Test was stopped by user',
-                        'suggestion' => 'Test execution was manually stopped'
-                    ]);
-                });
-            } else {
-                call_user_func($this->completionCallback, -1, [
-                    'type' => 'test_stopped',
-                    'message' => 'Test was stopped by user',
-                    'suggestion' => 'Test execution was manually stopped'
-                ]);
+        return $terminated;
+    }
+    
+    /**
+     * Check if a test is currently running
+     * 
+     * @return bool True if test is running, false otherwise
+     */
+    public function isRunning(): bool
+    {
+        if (!$this->isRunning) {
+            return false;
+        }
+        
+        // Check if process is still running
+        if (is_resource($this->process)) {
+            $status = proc_get_status($this->process);
+            if (!$status['running']) {
+                $this->isRunning = false;
+                $this->handleProcessCompletion();
             }
+        } else {
+            $this->isRunning = false;
+        }
+        
+        return $this->isRunning;
+    }
+    
+    /**
+     * Get the current output buffer
+     * 
+     * @return string The accumulated output from the test
+     */
+    public function getOutput(): string
+    {
+        return $this->outputBuffer;
+    }
+    
+    /**
+     * Monitor the running process for output and completion
+     */
+    private function monitorProcess(): void
+    {
+        // This method should be called periodically to check for output
+        // In a GUI application, this would typically be called from a timer or event loop
+        
+        if (!$this->isRunning || !is_resource($this->process)) {
+            return;
+        }
+        
+        // Check for timeout
+        if ($this->hasTimedOut()) {
+            $this->handleTimeout();
+            return;
+        }
+        
+        // Read from stdout with error handling
+        try {
+            $output = stream_get_contents($this->pipes[1]);
+            if ($output !== false && $output !== '') {
+                $this->outputBuffer .= $output;
+                
+                if ($this->outputCallback) {
+                    call_user_func($this->outputCallback, $output);
+                }
+            }
+        } catch (\Exception $e) {
+            if ($this->outputCallback) {
+                call_user_func($this->outputCallback, "Error reading stdout: " . $e->getMessage() . "\n");
+            }
+        }
+        
+        // Read from stderr with error handling
+        try {
+            $errorOutput = stream_get_contents($this->pipes[2]);
+            if ($errorOutput !== false && $errorOutput !== '') {
+                $this->outputBuffer .= $errorOutput;
+                
+                if ($this->outputCallback) {
+                    call_user_func($this->outputCallback, $errorOutput);
+                }
+            }
+        } catch (\Exception $e) {
+            if ($this->outputCallback) {
+                call_user_func($this->outputCallback, "Error reading stderr: " . $e->getMessage() . "\n");
+            }
+        }
+        
+        // Check if process has completed
+        $status = proc_get_status($this->process);
+        if (!$status['running']) {
+            $this->handleProcessCompletion();
+        }
+    }
+    
+    /**
+     * Handle process completion and cleanup
+     */
+    private function handleProcessCompletion(): void
+    {
+        if (!is_resource($this->process)) {
+            return;
+        }
+        
+        // Read any remaining output with error handling
+        try {
+            $remainingOutput = stream_get_contents($this->pipes[1]);
+            if ($remainingOutput !== false && $remainingOutput !== '') {
+                $this->outputBuffer .= $remainingOutput;
+                
+                if ($this->outputCallback) {
+                    call_user_func($this->outputCallback, $remainingOutput);
+                }
+            }
+        } catch (\Exception $e) {
+            if ($this->outputCallback) {
+                call_user_func($this->outputCallback, "Error reading final stdout: " . $e->getMessage() . "\n");
+            }
+        }
+        
+        try {
+            $remainingError = stream_get_contents($this->pipes[2]);
+            if ($remainingError !== false && $remainingError !== '') {
+                $this->outputBuffer .= $remainingError;
+                
+                if ($this->outputCallback) {
+                    call_user_func($this->outputCallback, $remainingError);
+                }
+            }
+        } catch (\Exception $e) {
+            if ($this->outputCallback) {
+                call_user_func($this->outputCallback, "Error reading final stderr: " . $e->getMessage() . "\n");
+            }
+        }
+        
+        // Get exit code and process status
+        $status = proc_get_status($this->process);
+        $exitCode = $status['exitcode'];
+        
+        // Add error information to output if process failed
+        if ($exitCode !== 0) {
+            $errorMessage = $this->getProcessErrorMessage($exitCode, $this->outputBuffer);
+            $this->outputBuffer .= "\n[Process Error] " . $errorMessage . "\n";
+            
+            if ($this->outputCallback) {
+                call_user_func($this->outputCallback, "\n[Process Error] " . $errorMessage . "\n");
+            }
+        }
+        
+        // Create TestResult and call completion callback
+        if ($this->completionCallback) {
+            $testResult = $this->createTestResultFromOutput($this->outputBuffer, $exitCode);
+            call_user_func($this->completionCallback, $testResult);
         }
         
         $this->cleanup();
-
-        return $terminated;
     }
 
     /**
-     * Get the complete output from the test
-     * 
-     * @return string The complete output
+     * Handle execution timeout
      */
-    public function getOutput()
+    private function handleTimeout(): void
     {
-        return $this->output;
-    }
-
-    /**
-     * Set the maximum output size to prevent memory exhaustion
-     * 
-     * @param int $size Maximum output size in bytes
-     * @return void
-     */
-    public function setMaxOutputSize(int $size): void
-    {
-        $this->maxOutputSize = $size;
-    }
-
-    /**
-     * Set the minimum interval between reads to prevent overwhelming the GUI
-     * 
-     * @param int $interval Minimum interval in milliseconds
-     * @return void
-     */
-    public function setMinReadInterval(int $interval): void
-    {
-        $this->minReadInterval = $interval;
-    }
-
-    /**
-     * Get the exit code of the completed test
-     * 
-     * @return int The exit code (0 for success)
-     */
-    public function getExitCode()
-    {
-        return $this->exitCode;
-    }
-
-    /**
-     * Read available output from the process
-     */
-    private function readOutput(): void
-    {
-        // Limit read frequency to prevent overwhelming the GUI
-        $currentTime = intval(microtime(true) * 1000); // Current time in milliseconds
-        if (($currentTime - $this->lastReadTime) < $this->minReadInterval) {
-            return; // Skip reading if not enough time has passed
+        $timeoutMessage = "\n[Timeout] Test execution timed out after {$this->executionTimeout} seconds\n";
+        $this->outputBuffer .= $timeoutMessage;
+        
+        if ($this->outputCallback) {
+            call_user_func($this->outputCallback, $timeoutMessage);
         }
-        $this->lastReadTime = $currentTime;
-
-        if (!isset($this->pipes[1]) || !isset($this->pipes[2])) {
-            return;
+        
+        // Terminate the process
+        if (is_resource($this->process)) {
+            proc_terminate($this->process, 9); // SIGKILL
         }
-
-        // Read from stdout (limit to 8192 bytes at a time to prevent memory issues)
-        $stdout = stream_get_contents($this->pipes[1], 8192);
-        if ($stdout !== false && $stdout !== '') {
-            // Limit total output to prevent memory exhaustion
-            if (strlen($this->output) < $this->maxOutputSize) {
-                // If we have space, add as much as we can
-                $availableSpace = $this->maxOutputSize - strlen($this->output);
-                if (strlen($stdout) <= $availableSpace) {
-                    // Plenty of space, add all
-                    $this->output .= $stdout;
-                } else {
-                    // Only add what we can fit
-                    $this->output .= substr($stdout, 0, $availableSpace);
-                    // Add indicator that output was truncated
-                    if (strlen($this->output) < $this->maxOutputSize) {
-                        $this->output .= "\n[Output truncated due to size limits]\n";
-                    }
-                }
-            }
-            // If we're already at limit, don't add anything more
+        
+        // Create timeout result
+        if ($this->completionCallback) {
+            $testResult = new TestResult();
+            $testResult->rawOutput = $this->outputBuffer;
+            $testResult->requestsPerSecond = 0.0;
+            $testResult->totalRequests = 0;
+            $testResult->failedRequests = 0;
+            $testResult->successRate = 0.0;
             
-            if ($this->outputCallback) {
-                call_user_func($this->outputCallback, $stdout);
-            }
+            call_user_func($this->completionCallback, $testResult);
         }
-
-        // Read from stderr (limit to 8192 bytes at a time to prevent memory issues)
-        $stderr = stream_get_contents($this->pipes[2], 8192);
-        if ($stderr !== false && $stderr !== '') {
-            // Limit total output to prevent memory exhaustion
-            if (strlen($this->output) < $this->maxOutputSize) {
-                // If we have space, add as much as we can
-                $availableSpace = $this->maxOutputSize - strlen($this->output);
-                if (strlen($stderr) <= $availableSpace) {
-                    // Plenty of space, add all
-                    $this->output .= $stderr;
-                } else {
-                    // Only add what we can fit
-                    $this->output .= substr($stderr, 0, $availableSpace);
-                    // Add indicator that output was truncated
-                    if (strlen($this->output) < $this->maxOutputSize) {
-                        $this->output .= "\n[Output truncated due to size limits]\n";
-                    }
-                }
-            }
-            // If we're already at limit, don't add anything more
-            
-            if ($this->errorCallback) {
-                call_user_func($this->errorCallback, $stderr);
-            } elseif ($this->outputCallback) {
-                // If no error callback, send to output callback
-                call_user_func($this->outputCallback, $stderr);
-            }
-        }
+        
+        $this->cleanup();
     }
-
-    /**
-     * Read any remaining output when process completes
-     */
-    private function readRemainingOutput(): void
-    {
-        // Reset read time limit for final read
-        $this->lastReadTime = 0;
-
-        if (!isset($this->pipes[1]) || !isset($this->pipes[2])) {
-            return;
-        }
-
-        // Set blocking mode to read all remaining data
-        stream_set_blocking($this->pipes[1], true);
-        stream_set_blocking($this->pipes[2], true);
-
-        // Read remaining stdout (limit to 8192 bytes at a time to prevent memory issues)
-        $stdout = stream_get_contents($this->pipes[1], 8192);
-        if ($stdout !== false && $stdout !== '') {
-            // Limit total output to prevent memory exhaustion
-            if (strlen($this->output) < $this->maxOutputSize) {
-                // If we have space, add as much as we can
-                $availableSpace = $this->maxOutputSize - strlen($this->output);
-                if (strlen($stdout) <= $availableSpace) {
-                    // Plenty of space, add all
-                    $this->output .= $stdout;
-                } else {
-                    // Only add what we can fit
-                    $this->output .= substr($stdout, 0, $availableSpace);
-                    // Add indicator that output was truncated
-                    if (strlen($this->output) < $this->maxOutputSize) {
-                        $this->output .= "\n[Output truncated due to size limits]\n";
-                    }
-                }
-            }
-            // If we're already at limit, don't add anything more
-            
-            if ($this->outputCallback) {
-                call_user_func($this->outputCallback, $stdout);
-            }
-        }
-
-        // Read remaining stderr (limit to 8192 bytes at a time to prevent memory issues)
-        $stderr = stream_get_contents($this->pipes[2], 8192);
-        if ($stderr !== false && $stderr !== '') {
-            // Limit total output to prevent memory exhaustion
-            if (strlen($this->output) < $this->maxOutputSize) {
-                // If we have space, add as much as we can
-                $availableSpace = $this->maxOutputSize - strlen($this->output);
-                if (strlen($stderr) <= $availableSpace) {
-                    // Plenty of space, add all
-                    $this->output .= $stderr;
-                } else {
-                    // Only add what we can fit
-                    $this->output .= substr($stderr, 0, $availableSpace);
-                    // Add indicator that output was truncated
-                    if (strlen($this->output) < $this->maxOutputSize) {
-                        $this->output .= "\n[Output truncated due to size limits]\n";
-                    }
-                }
-            }
-            // If we're already at limit, don't add anything more
-            
-            if ($this->errorCallback) {
-                call_user_func($this->errorCallback, $stderr);
-            } elseif ($this->outputCallback) {
-                call_user_func($this->outputCallback, $stderr);
-            }
-        }
-    }
-
+    
     /**
      * Clean up process resources
      */
     private function cleanup(): void
     {
-        // Close pipes
-        if (isset($this->pipes[1]) && is_resource($this->pipes[1])) {
-            fclose($this->pipes[1]);
-        }
-        if (isset($this->pipes[2]) && is_resource($this->pipes[2])) {
-            fclose($this->pipes[2]);
-        }
-
-        // Close process
         if (is_resource($this->process)) {
+            // Close pipes
+            if (isset($this->pipes[1]) && is_resource($this->pipes[1])) {
+                fclose($this->pipes[1]);
+            }
+            if (isset($this->pipes[2]) && is_resource($this->pipes[2])) {
+                fclose($this->pipes[2]);
+            }
+            
+            // Close process
             proc_close($this->process);
         }
-
-        $this->pipes = [];
+        
         $this->process = null;
+        $this->pipes = [];
+        $this->isRunning = false;
     }
-
+    
+    /**
+     * Create a TestResult object from the command output
+     * 
+     * @param string $output The raw output from oha command
+     * @param int $exitCode The process exit code
+     * @return TestResult The parsed test result
+     */
+    private function createTestResultFromOutput(string $output, int $exitCode): TestResult
+    {
+        $testResult = new TestResult();
+        $testResult->rawOutput = $output;
+        
+        if ($exitCode !== 0) {
+            // Test failed or was interrupted
+            $testResult->requestsPerSecond = 0.0;
+            $testResult->totalRequests = 0;
+            $testResult->failedRequests = 0;
+            $testResult->successRate = 0.0;
+        } else {
+            // Parse successful output - this will be enhanced in the ResultParser class
+            // For now, just set default values
+            $testResult->requestsPerSecond = 0.0;
+            $testResult->totalRequests = 0;
+            $testResult->failedRequests = 0;
+            $testResult->successRate = 100.0;
+        }
+        
+        return $testResult;
+    }
+    
+    /**
+     * Update process monitoring (should be called periodically from GUI event loop)
+     * 
+     * This method should be called regularly to ensure real-time output capture
+     * and proper process completion handling.
+     */
+    public function update(): void
+    {
+        if ($this->isRunning) {
+            $this->monitorProcess();
+        }
+    }
+    
+    /**
+     * Execute a test synchronously (blocking)
+     * 
+     * This is a convenience method for cases where synchronous execution is preferred.
+     * 
+     * @param string $command The oha command to execute
+     * @param int $timeoutSeconds Maximum time to wait for completion (default: 300 seconds)
+     * @return TestResult The test result
+     * @throws \RuntimeException If execution fails or times out
+     */
+    public function executeTestSync(string $command, int $timeoutSeconds = 300): TestResult
+    {
+        $output = '';
+        $completed = false;
+        $result = null;
+        
+        // Set up callbacks
+        $outputCallback = function($data) use (&$output) {
+            $output .= $data;
+        };
+        
+        $completionCallback = function($testResult) use (&$completed, &$result) {
+            $completed = true;
+            $result = $testResult;
+        };
+        
+        // Start the test
+        $this->executeTest($command, null, $outputCallback, $completionCallback);
+        
+        // Wait for completion with timeout
+        $startTime = time();
+        while (!$completed && (time() - $startTime) < $timeoutSeconds) {
+            $this->update();
+            usleep(100000); // Sleep for 100ms
+        }
+        
+        if (!$completed) {
+            $this->stopTest();
+            throw new \RuntimeException('Test execution timed out after ' . $timeoutSeconds . ' seconds');
+        }
+        
+        return $result;
+    }
+    
     /**
      * Get process status information
      * 
-     * @return array|null Process status or null if no process
+     * @return array|null Process status array or null if no process is running
      */
-    public function getProcessStatus()
+    public function getProcessStatus(): ?array
     {
         if (!is_resource($this->process)) {
             return null;
         }
-
+        
         return proc_get_status($this->process);
     }
-
+    
     /**
-     * Wait for the test to complete (blocking)
+     * Validate that oha binary exists and is executable
      * 
-     * @param int $timeoutSeconds Maximum time to wait (0 = no timeout)
-     * @return bool True if test completed, false if timeout
+     * @param string $command The command to validate
+     * @throws \RuntimeException If oha binary is not found or not executable
      */
-    public function waitForCompletion($timeoutSeconds = 0)
+    private function validateOhaBinary(string $command): void
     {
-        $startTime = time();
+        // Extract binary path from command (first argument)
+        $parts = explode(' ', trim($command));
+        $binaryPath = $parts[0] ?? '';
         
-        while ($this->isRunning()) {
-            usleep(100000); // 100ms
-            
-            if ($timeoutSeconds > 0 && (time() - $startTime) >= $timeoutSeconds) {
-                return false; // Timeout
-            }
+        if (empty($binaryPath)) {
+            throw new \RuntimeException('No binary path found in command');
         }
         
-        return true;
+        // Remove quotes if present
+        $binaryPath = trim($binaryPath, '"\'');
+        
+        // Check if it's just a binary name (in PATH) or a full path
+        if (strpos($binaryPath, DIRECTORY_SEPARATOR) === false) {
+            // Binary name only - first check local bin directory
+            $localBinPath = getcwd() . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . $binaryPath;
+            if (file_exists($localBinPath) && is_executable($localBinPath)) {
+                return;
+            }
+            
+            // Then check if it exists in PATH
+            $pathCommand = PHP_OS_FAMILY === 'Windows' ? 'where' : 'which';
+            $output = [];
+            $returnCode = 0;
+            
+            exec($pathCommand . ' ' . escapeshellarg($binaryPath) . ' 2>/dev/null', $output, $returnCode);
+            
+            if ($returnCode !== 0 || empty($output)) {
+                throw new \RuntimeException(
+                    'oha binary not found in PATH. Please install oha or ensure it is in your system PATH. ' .
+                    'Visit https://github.com/hatoo/oha for installation instructions.'
+                );
+            }
+        } else {
+            // Full path - check if file exists and is executable
+            if (!file_exists($binaryPath)) {
+                throw new \RuntimeException('oha binary not found at: ' . $binaryPath);
+            }
+            
+            if (!is_executable($binaryPath)) {
+                throw new \RuntimeException('oha binary is not executable: ' . $binaryPath);
+            }
+        }
     }
 
     /**
-     * Execute a test synchronously (blocking)
+     * Handle process execution errors with detailed error reporting
      * 
-     * @param string $command The oha command to execute
-     * @param int $timeoutSeconds Maximum execution time (0 = no timeout)
-     * @return array Result with 'success', 'output', 'exitCode'
-     * @throws Exception If command execution fails
+     * @param int $exitCode Process exit code
+     * @param string $output Process output
+     * @return string Error message
      */
-    public function executeTestSync($command, $timeoutSeconds = 0)
+    private function getProcessErrorMessage(int $exitCode, string $output): string
     {
-        $output = '';
-        
-        $this->executeTest($command, function($data) use (&$output) {
-            $output .= $data;
-        });
-        
-        $completed = $this->waitForCompletion($timeoutSeconds);
-        
-        if (!$completed) {
-            $this->stopTest();
-            throw new Exception('Test execution timed out after ' . $timeoutSeconds . ' seconds');
-        }
-        
-        return [
-            'success' => $this->exitCode === 0,
-            'output' => $this->output,
-            'exitCode' => $this->exitCode
+        $errorMessages = [
+            1 => 'General error - check URL and parameters',
+            2 => 'Misuse of shell command - invalid arguments',
+            126 => 'Command invoked cannot execute - permission denied',
+            127 => 'Command not found - oha binary not in PATH',
+            128 => 'Invalid argument to exit',
+            130 => 'Process terminated by user (Ctrl+C)',
+            -1 => 'Process was terminated or killed'
         ];
-    }
-
-    /**
-     * Handle process timeout
-     */
-    private function handleTimeout(): void
-    {
-        $this->isRunning = false;
         
-        $error = $this->errorHandler->handleProcessTimeout(
-            $this->timeoutSeconds,
-            'oha command'
-        );
+        $baseMessage = $errorMessages[$exitCode] ?? 'Unknown error (exit code: ' . $exitCode . ')';
         
-        if ($this->errorCallback) {
-            call_user_func($this->errorCallback, $error);
+        // Extract specific error information from output
+        $specificErrors = [];
+        
+        if (stripos($output, 'connection refused') !== false) {
+            $specificErrors[] = 'Connection refused - server may be down or unreachable';
         }
         
-        // Force stop the process
-        $this->stopTest();
-        
-        if ($this->completionCallback) {
-            call_user_func($this->completionCallback, -1, $error);
-        }
-    }
-
-    /**
-     * Validate oha binary availability
-     * 
-     * @return array Validation result
-     */
-    public function validateOhaBinary(): array
-    {
-        return $this->errorHandler->validateOhaBinary();
-    }
-
-    /**
-     * Get oha installation instructions
-     * 
-     * @return string Installation instructions
-     */
-    public function getOhaInstallationInstructions(): string
-    {
-        return $this->errorHandler->getOhaInstallationInstructions();
-    }
-
-    /**
-     * Get user-friendly error message
-     * 
-     * @param array $error Error details
-     * @return string User-friendly message
-     */
-    public function getUserFriendlyErrorMessage(array $error): string
-    {
-        return $this->errorHandler->getUserFriendlyErrorMessage($error);
-    }
-
-    /**
-     * Check if last execution had errors
-     * 
-     * @return bool True if there were errors
-     */
-    public function hasErrors(): bool
-    {
-        return $this->exitCode !== 0;
-    }
-
-    /**
-     * Get detailed error analysis for last execution
-     * 
-     * @param string $command Command that was executed
-     * @return array|null Error details or null if no error
-     */
-    public function getLastError(string $command = ''): ?array
-    {
-        $analysis = $this->errorHandler->analyzeProcessError(
-            $this->exitCode,
-            $this->output,
-            $command
-        );
-        
-        // Return null for success cases
-        if ($analysis['type'] === 'success') {
-            return null;
+        if (stripos($output, 'timeout') !== false) {
+            $specificErrors[] = 'Request timeout - server not responding or network issues';
         }
         
-        return $analysis;
-    }
-
-    /**
-     * Execute test with enhanced error handling and return detailed result
-     * 
-     * @param string $command Command to execute
-     * @param int $timeoutSeconds Timeout in seconds
-     * @return array Detailed execution result
-     */
-    public function executeTestWithErrorHandling(string $command, int $timeoutSeconds = 0): array
-    {
-        $result = [
-            'success' => false,
-            'output' => '',
-            'exit_code' => 0,
-            'error' => null,
-            'warnings' => []
-        ];
-
-        try {
-            // Validate binary first
-            $binaryValidation = $this->validateOhaBinary();
-            if (!$binaryValidation['available']) {
-                $result['error'] = $binaryValidation['errors'][0] ?? [
-                    'type' => ProcessErrorHandler::ERROR_BINARY_NOT_FOUND,
-                    'message' => 'oha binary not available'
-                ];
-                return $result;
-            }
-
-            // Add any warnings from binary validation
-            $result['warnings'] = $binaryValidation['warnings'] ?? [];
-
-            // Execute the test
-            $this->executeTest($command, null, null, null, $timeoutSeconds);
-            
-            // Wait for completion
-            $completed = $this->waitForCompletion($timeoutSeconds);
-            
-            if (!$completed && $timeoutSeconds > 0) {
-                $this->stopTest();
-                $result['error'] = $this->errorHandler->handleProcessTimeout($timeoutSeconds, $command);
-                return $result;
-            }
-
-            $result['success'] = $this->exitCode === 0;
-            $result['output'] = $this->output;
-            $result['exit_code'] = $this->exitCode;
-
-            if (!$result['success']) {
-                $result['error'] = $this->getLastError($command);
-            }
-
-        } catch (Exception $e) {
-            $result['error'] = [
-                'type' => ProcessErrorHandler::ERROR_UNKNOWN,
-                'message' => $e->getMessage(),
-                'suggestion' => 'Check the error details and try again'
-            ];
-        }
-
-        return $result;
-    }
-
-    /**
-     * Public cleanup method for external resource management
-     * 
-     * @return void
-     */
-    public function cleanupResources(): void
-    {
-        if ($this->isRunning) {
-            $this->stopTest();
+        if (stripos($output, 'dns') !== false || stripos($output, 'name resolution') !== false) {
+            $specificErrors[] = 'DNS resolution failed - check URL hostname';
         }
         
-        // Clear callbacks to prevent memory leaks
-        $this->outputCallback = null;
-        $this->errorCallback = null;
-        $this->completionCallback = null;
+        if (stripos($output, 'ssl') !== false || stripos($output, 'tls') !== false) {
+            $specificErrors[] = 'SSL/TLS error - certificate or encryption issues';
+        }
         
-        // Clear output buffer
-        $this->output = '';
+        if (stripos($output, 'permission denied') !== false) {
+            $specificErrors[] = 'Permission denied - check file permissions or user privileges';
+        }
+        
+        if (stripos($output, 'invalid argument') !== false) {
+            $specificErrors[] = 'Invalid command arguments - check configuration parameters';
+        }
+        
+        $message = $baseMessage;
+        if (!empty($specificErrors)) {
+            $message .= ': ' . implode(', ', $specificErrors);
+        }
+        
+        return $message;
     }
 
     /**
-     * Destructor to ensure cleanup
+     * Set execution timeout for long-running tests
+     * 
+     * @param int $timeoutSeconds Maximum execution time in seconds
+     */
+    public function setTimeout(int $timeoutSeconds): void
+    {
+        $this->executionTimeout = $timeoutSeconds;
+        $this->executionStartTime = time();
+    }
+
+    /**
+     * Check if execution has timed out
+     * 
+     * @return bool True if execution has timed out
+     */
+    private function hasTimedOut(): bool
+    {
+        if (!isset($this->executionTimeout) || !isset($this->executionStartTime)) {
+            return false;
+        }
+        
+        return (time() - $this->executionStartTime) > $this->executionTimeout;
+    }
+
+    /**
+     * Destructor to ensure proper cleanup
      */
     public function __destruct()
     {

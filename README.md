@@ -238,6 +238,7 @@ php test_process_error_handling.php
 - **Simplified Binary Management**: OHA binary detection limited to project `bin/` directory
 - **Enhanced Configuration Management**: Improved file operations with error recovery
 - **Professional UI Polish**: Better window management and user experience
+- **Fixed Configuration Save Bug**: Resolved "Call to a member function validateConfiguration() on null" error when saving new configurations
 
 ### Technical Improvements
 

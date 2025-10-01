@@ -2,169 +2,409 @@
 
 namespace OhaGui\Core;
 
+use InvalidArgumentException;
 use OhaGui\Models\TestConfiguration;
 use OhaGui\Utils\CrossPlatform;
-use InvalidArgumentException;
+use RuntimeException;
 
 /**
- * OHA Command Builder
- * Converts TestConfiguration objects into executable oha commands
+ * OhaCommandBuilder - Builds oha command strings from TestConfiguration objects
+ * 
+ * This class is responsible for converting TestConfiguration objects into properly
+ * formatted oha command strings with cross-platform binary path resolution and
+ * proper argument escaping.
  */
 class OhaCommandBuilder
 {
-    private bool $testMode = false;
-
-    /**
-     * Enable test mode (allows building commands without oha binary)
-     */
-    public function enableTestMode(): void
-    {
-        $this->testMode = true;
-    }
-
-    /**
-     * Disable test mode
-     */
-    public function disableTestMode(): void
-    {
-        $this->testMode = false;
-    }
-
     /**
      * Build oha command from TestConfiguration
      * 
      * @param TestConfiguration $config The test configuration
-     * @return string The complete oha command
-     * @throws InvalidArgumentException If configuration is invalid or oha binary not found
+     * @return string The complete oha command string
+     * @throws InvalidArgumentException If configuration is invalid
+     * @throws RuntimeException If oha binary is not available
      */
     public function buildCommand(TestConfiguration $config): string
     {
-        // Validate configuration first
-        $errors = $config->validate();
-        if (!empty($errors)) {
-            throw new InvalidArgumentException('Invalid configuration: ' . implode(', ', $errors));
+        // Validate only the fields needed for command building (skip name validation)
+        $validationErrors = $this->validateForCommandBuilding($config);
+        if (!empty($validationErrors)) {
+            throw new InvalidArgumentException('Invalid configuration: ' . implode(', ', $validationErrors));
         }
 
-        // Get oha binary path
-        $binaryPath = $this->getOhaBinaryPath();
-        if (!$binaryPath && !$this->testMode) {
-            throw new InvalidArgumentException('oha binary not found. Please install oha and ensure it\'s in your PATH.');
-        }
+        // Validate command security
+        $this->validateCommandSecurity($config);
 
-        // Use 'oha' as default in test mode
-        if (!$binaryPath && $this->testMode) {
-            $binaryPath = 'oha';
-        }
-
-        // Build command components
         $command = [];
-        $command[] = escapeshellarg($binaryPath);
+        
+        // Add oha binary path (this will throw if not found)
+        $binaryPath = $this->getOhaBinaryPath();
+        $command[] = $this->escapeArgument($binaryPath);
         
         // Add concurrent connections parameter
-        $command[] = '-c ' . (int)$config->concurrentConnections;
+        $command[] = '-c';
+        $command[] = (string)$config->concurrentConnections;
         
         // Add duration parameter
-        $command[] = '-z ' . (int)$config->duration . 's';
+        $command[] = '-z';
+        $command[] = $config->duration . 's';
         
         // Add timeout parameter
-        $command[] = '-t ' . (int)$config->timeout . 's';
+        $command[] = '-t';
+        $command[] = $config->timeout . 's';
         
         // Add HTTP method parameter
-        $command[] = '-m ' . escapeshellarg(strtoupper($config->method));
+        $command[] = '-m';
+        $command[] = strtoupper($config->method);
         
-        // Disable TUI for programmatic output
+        // Disable TUI for programmatic output parsing
         $command[] = '--no-tui';
         
         // Add request headers
         foreach ($config->headers as $key => $value) {
-            $headerString = trim($key) . ': ' . trim($value);
-            $command[] = '-H ' . escapeshellarg($headerString);
+            $command[] = '-H';
+            $command[] = $this->escapeArgument($key . ': ' . $value);
         }
         
-        // Add request body if provided and method supports it
-        $methodsWithBody = ['POST', 'PUT', 'PATCH'];
-        if (in_array(strtoupper($config->method), $methodsWithBody) && !empty(trim($config->body))) {
-            $command[] = '-d ' . escapeshellarg($config->body);
+        // Add request body if provided
+        if (!empty($config->body)) {
+            $command[] = '-d';
+            $command[] = $this->escapeArgument($config->body);
         }
         
         // Add target URL (must be last)
-        $command[] = escapeshellarg($config->url);
+        $command[] = $this->escapeArgument($config->url);
         
         return implode(' ', $command);
     }
-
+    
     /**
-     * Get the path to the oha binary
+     * Get the appropriate oha binary path for the current platform
      * 
-     * @return string|null The path to oha binary or null if not found
+     * @return string The oha binary path
+     * @throws RuntimeException If oha binary cannot be found
      */
-    private function getOhaBinaryPath(): ?string
+    private function getOhaBinaryPath(): string
     {
-        return CrossPlatform::findOhaBinaryPath();
+        $binaryName = CrossPlatform::isWindows() ? 'oha.exe' : 'oha';
+        
+        // First try local bin directory
+        $localBinPath = getcwd() . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . $binaryName;
+        if (file_exists($localBinPath) && is_executable($localBinPath)) {
+            return $localBinPath;
+        }
+        
+        // Then try to find oha in PATH
+        $pathCommand = CrossPlatform::isWindows() ? 'where' : 'which';
+        $output = [];
+        $returnCode = 0;
+        
+        exec($pathCommand . ' ' . escapeshellarg($binaryName) . ' 2>/dev/null', $output, $returnCode);
+        
+        if ($returnCode === 0 && !empty($output)) {
+            $binaryPath = trim($output[0]);
+            
+            // Verify the binary is actually executable
+            if (is_executable($binaryPath)) {
+                return $binaryPath;
+            }
+        }
+        
+        // If not found in PATH, try common installation locations
+        $commonPaths = $this->getCommonOhaPaths();
+        
+        foreach ($commonPaths as $path) {
+            $fullPath = $path . DIRECTORY_SEPARATOR . $binaryName;
+            if (file_exists($fullPath) && is_executable($fullPath)) {
+                return $fullPath;
+            }
+        }
+        
+        // If still not found, throw an exception with helpful information
+        throw new RuntimeException(
+            'oha binary not found. Please install oha and ensure it is in your system PATH. ' .
+            'Visit https://github.com/hatoo/oha for installation instructions. ' .
+            'Searched locations: local bin directory, PATH, and [' . implode(', ', $commonPaths) . ']'
+        );
     }
-
+    
     /**
-     * Escape a command argument for shell execution
+     * Get common installation paths for oha binary based on platform
+     * 
+     * @return array Array of common paths where oha might be installed
+     */
+    private function getCommonOhaPaths(): array
+    {
+        if (CrossPlatform::isWindows()) {
+            return [
+                'C:\\Program Files\\oha',
+                'C:\\Program Files (x86)\\oha',
+                'C:\\tools\\oha',
+                getenv('USERPROFILE') . '\\AppData\\Local\\oha',
+                getcwd() . '\\bin'
+            ];
+        } elseif (CrossPlatform::isMacOS()) {
+            return [
+                '/usr/local/bin',
+                '/opt/homebrew/bin',
+                '/usr/bin',
+                getenv('HOME') . '/.local/bin',
+                getcwd() . '/bin'
+            ];
+        } else { // Linux
+            return [
+                '/usr/local/bin',
+                '/usr/bin',
+                '/bin',
+                getenv('HOME') . '/.local/bin',
+                getcwd() . '/bin'
+            ];
+        }
+    }
+    
+    /**
+     * Escape command line argument to prevent injection and handle special characters
      * 
      * @param string $arg The argument to escape
      * @return string The escaped argument
      */
     private function escapeArgument(string $arg): string
     {
-        return escapeshellarg($arg);
+        if (CrossPlatform::isWindows()) {
+            // Windows command line escaping
+            // Escape double quotes and wrap in double quotes
+            $escaped = str_replace('"', '""', $arg);
+            return '"' . $escaped . '"';
+        } else {
+            // Unix-like systems: use single quotes and escape single quotes
+            $escaped = str_replace("'", "'\"'\"'", $arg);
+            return "'" . $escaped . "'";
+        }
     }
-
+    
     /**
-     * Validate that oha binary is available and working
+     * Validate that oha binary is available and executable
      * 
      * @return bool True if oha is available, false otherwise
      */
     public function isOhaAvailable(): bool
     {
-        return CrossPlatform::isOhaAvailable();
+        try {
+            $binaryPath = $this->getOhaBinaryPath();
+            
+            // Try to execute oha --version to verify it's working
+            $output = [];
+            $returnCode = 0;
+            exec(escapeshellarg($binaryPath) . ' --version 2>/dev/null', $output, $returnCode);
+            
+            return $returnCode === 0;
+        } catch (\Exception $e) {
+            return false;
+        }
     }
 
     /**
+     * Get detailed error information about oha availability
+     * 
+     * @return array Array with 'available' (bool) and 'error' (string) keys
+     */
+    public function getOhaAvailabilityInfo(): array
+    {
+        try {
+            $binaryPath = $this->getOhaBinaryPath();
+            
+            // Check if file exists
+            if (!file_exists($binaryPath)) {
+                return [
+                    'available' => false,
+                    'error' => 'oha binary not found at: ' . $binaryPath
+                ];
+            }
+            
+            // Check if file is executable
+            if (!is_executable($binaryPath)) {
+                return [
+                    'available' => false,
+                    'error' => 'oha binary is not executable: ' . $binaryPath . '. Check file permissions.'
+                ];
+            }
+            
+            // Try to execute oha --version to verify it's working
+            $output = [];
+            $returnCode = 0;
+            exec(escapeshellarg($binaryPath) . ' --version 2>&1', $output, $returnCode);
+            
+            if ($returnCode !== 0) {
+                return [
+                    'available' => false,
+                    'error' => 'oha binary failed to execute (exit code: ' . $returnCode . '). Output: ' . implode(' ', $output)
+                ];
+            }
+            
+            return [
+                'available' => true,
+                'error' => '',
+                'path' => $binaryPath,
+                'version' => implode(' ', $output)
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'available' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
      * Get oha version information
      * 
-     * @return string|null Version string or null if not available
+     * @return string|null The oha version string, or null if not available
      */
     public function getOhaVersion(): ?string
     {
-        $binaryPath = $this->getOhaBinaryPath();
-        if (!$binaryPath) {
-            return null;
-        }
-
-        $command = escapeshellarg($binaryPath) . ' --version';
-        $result = CrossPlatform::executeCommand($command);
-        
-        if ($result['success'] && !empty($result['output'])) {
-            return trim(implode("\n", $result['output']));
+        try {
+            $binaryPath = $this->getOhaBinaryPath();
+            
+            $output = [];
+            $returnCode = 0;
+            exec(escapeshellarg($binaryPath) . ' --version 2>/dev/null', $output, $returnCode);
+            
+            if ($returnCode === 0 && !empty($output)) {
+                return trim($output[0]);
+            }
+        } catch (\Exception $e) {
+            // Ignore exceptions and return null
         }
         
         return null;
     }
 
     /**
-     * Build a test command to verify oha functionality
-     * This creates a minimal command for testing purposes
+     * Validate command arguments for potential security issues
      * 
-     * @param string $testUrl Optional test URL (defaults to httpbin.org)
-     * @return string Test command
+     * @param TestConfiguration $config The configuration to validate
+     * @throws InvalidArgumentException If arguments contain potential security issues
      */
-    public function buildTestCommand(string $testUrl = 'https://httpbin.org/get'): string
+    private function validateCommandSecurity(TestConfiguration $config): void
     {
-        $binaryPath = $this->getOhaBinaryPath();
-        if (!$binaryPath && !$this->testMode) {
-            throw new InvalidArgumentException('oha binary not found');
+        // Check for command injection attempts in URL
+        // Note: We allow & in URLs as it's a valid query parameter separator
+        $dangerousUrlPatterns = [
+            '/[;|`$(){}[\]]/',  // Shell metacharacters (excluding &)
+            '/\s*(rm|del|format|shutdown|reboot)\s+/i',  // Dangerous commands
+            '/\s*>\s*/',  // Output redirection
+            '/\s*<\s*/',  // Input redirection
+        ];
+        
+        foreach ($dangerousUrlPatterns as $pattern) {
+            if (preg_match($pattern, $config->url)) {
+                throw new InvalidArgumentException('URL contains potentially dangerous characters or commands');
+            }
+        }
+        
+        // Check headers for injection attempts
+        $dangerousPatterns = [
+            '/[;&|`$(){}[\]]/',  // Shell metacharacters
+            '/\s*(rm|del|format|shutdown|reboot)\s+/i',  // Dangerous commands
+            '/\s*>\s*/',  // Output redirection
+            '/\s*<\s*/',  // Input redirection
+        ];
+        
+        foreach ($config->headers as $key => $value) {
+            foreach ($dangerousPatterns as $pattern) {
+                if (preg_match($pattern, $key) || preg_match($pattern, $value)) {
+                    throw new InvalidArgumentException('Header contains potentially dangerous characters or commands');
+                }
+            }
+        }
+        
+        // Check body for injection attempts (less strict as it's data)
+        if (!empty($config->body)) {
+            if (preg_match('/[;&|`$()]/', $config->body)) {
+                // Only warn about shell metacharacters in body, don't block
+                error_log('Warning: Request body contains shell metacharacters');
+            }
+        }
+    }
+    
+    /**
+     * Validate configuration fields needed for command building
+     * This is a subset of the full validation that excludes name validation
+     * 
+     * @param TestConfiguration $config The configuration to validate
+     * @return array Array of validation errors
+     */
+    private function validateForCommandBuilding(TestConfiguration $config): array
+    {
+        $errors = [];
+
+        // Validate URL format
+        if (empty($config->url)) {
+            $errors[] = 'URL is required';
+        } elseif (!filter_var($config->url, FILTER_VALIDATE_URL)) {
+            $errors[] = 'URL format is invalid';
         }
 
-        // Use 'oha' as default in test mode
-        if (!$binaryPath && $this->testMode) {
-            $binaryPath = 'oha';
+        // Validate HTTP method
+        $validMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+        if (!in_array(strtoupper($config->method), $validMethods)) {
+            $errors[] = 'HTTP method must be one of: ' . implode(', ', $validMethods);
         }
 
-        return escapeshellarg($binaryPath) . ' -c 1 -z 1s --no-tui ' . escapeshellarg($testUrl);
+        // Validate concurrent connections
+        if ($config->concurrentConnections < 1 || $config->concurrentConnections > 1000) {
+            $errors[] = 'Concurrent connections must be between 1 and 1000';
+        }
+
+        // Validate duration
+        if ($config->duration < 1 || $config->duration > 3600) {
+            $errors[] = 'Duration must be between 1 and 3600 seconds';
+        }
+
+        // Validate timeout
+        if ($config->timeout < 1 || $config->timeout > 300) {
+            $errors[] = 'Timeout must be between 1 and 300 seconds';
+        }
+
+        // Validate headers format
+        if (!is_array($config->headers)) {
+            $errors[] = 'Headers must be an array';
+        } else {
+            foreach ($config->headers as $key => $value) {
+                if (!is_string($key) || !is_string($value)) {
+                    $errors[] = 'Headers must be key-value pairs of strings';
+                    break;
+                }
+            }
+        }
+
+        // Validate request body for JSON format if method supports body
+        $methodsWithBody = ['POST', 'PUT', 'PATCH'];
+        if (in_array(strtoupper($config->method), $methodsWithBody) && !empty($config->body)) {
+            if (!$this->isValidJson($config->body) && !$this->isValidFormData($config->body)) {
+                $errors[] = 'Request body must be valid JSON or form data';
+            }
+        }
+
+        return $errors;
+    }
+    
+    /**
+     * Check if string is valid JSON
+     */
+    private function isValidJson(string $string): bool
+    {
+        json_decode($string);
+        return json_last_error() === JSON_ERROR_NONE;
+    }
+
+    /**
+     * Check if string is valid form data format
+     */
+    private function isValidFormData(string $string): bool
+    {
+        // Simple check for form data format (key=value&key=value)
+        return preg_match('/^[^=&]+(=[^&]*)?(&[^=&]+(=[^&]*)?)*$/', $string) === 1;
     }
 }

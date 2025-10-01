@@ -1,255 +1,610 @@
 <?php
 
+declare(strict_types=1);
+
 namespace OhaGui\GUI;
 
-use Kingbes\Libui\Form;
+use Kingbes\Libui\Base as LibuiBase;
+use Kingbes\Libui\Box;
+use Kingbes\Libui\Label;
 use Kingbes\Libui\Entry;
 use Kingbes\Libui\Combobox;
-use Kingbes\Libui\EditableCombobox;
 use Kingbes\Libui\Spinbox;
 use Kingbes\Libui\MultilineEntry;
 use Kingbes\Libui\Button;
-use Kingbes\Libui\Label;
-use Kingbes\Libui\Box;
+use Kingbes\Libui\Group;
 use Kingbes\Libui\Control;
-use FFI\CData;
 use OhaGui\Models\TestConfiguration;
-use OhaGui\Core\InputValidator;
-use OhaGui\Core\ConfigurationManager;
-use Exception;
+use OhaGui\Core\ConfigurationValidator;
 
 /**
- * Configuration Form component for HTTP load test parameters
- * 
- * Provides input fields for all oha test parameters with validation
+ * Configuration form component for OHA GUI Tool
+ * Provides input fields for test parameters with validation
  */
-class ConfigurationForm
+class ConfigurationForm extends BaseGUIComponent
 {
-    private CData $form;
-    private CData $saveConfigCombobox;
-    private CData $saveButton;
-    private CData $loadButton;
-    private CData $manageButton;
-    private CData $validationLabel;
-    private CData $detailedValidationLabel;
-    private CData $startButton;
-    private CData $stopButton;
-
-    private array $validationErrors = [];
-    private array $validationResult = [];
-    private InputValidator $validator;
-    private ConfigurationManager $configManager;
-
+    private $formGroup;
+    private $urlEntry;
+    private $methodCombobox;
+    private $connectionsSpinbox;
+    private $durationSpinbox;
+    private $timeoutSpinbox;
+    private $headersEntry;
+    private $bodyEntry;
+    private $startButton;
+    private $stopButton;
+    private $saveButton;
+    private $errorLabel;
+    
+    private ?ConfigurationValidator $validator = null;
     private $onStartTestCallback = null;
     private $onStopTestCallback = null;
     private $onSaveConfigCallback = null;
-    private $onLoadConfigCallback = null;
-    private $onManageConfigCallback = null;
-
-    // Currently loaded configuration
-    private ?TestConfiguration $currentConfig = null;
 
     /**
      * Initialize the configuration form
      */
     public function __construct()
     {
-        $this->validator = new InputValidator();
-        $this->configManager = new ConfigurationManager();
-        $this->createForm();
-        $this->setupValidation();
+        $this->validator = new ConfigurationValidator();
     }
 
     /**
-     * Create the form layout with all input fields
+     * Helper method to cast control to uiControl*
      * 
-     * @return void
+     * @param mixed $control
+     * @return mixed
      */
-    private function createForm(): void
+    protected function castControl($control)
     {
-        $this->form = Form::create();
-        Form::setPadded($this->form, true);
-
-        // Configuration Management Section
-        $configBox = Box::newHorizontalBox();
-        Box::setPadded($configBox, true);
-
-        // Single configuration combobox
-        $this->saveConfigCombobox = EditableCombobox::create();
-        EditableCombobox::setText($this->saveConfigCombobox, '');
-        $this->refreshSaveConfigList();
-        Box::append($configBox, $this->saveConfigCombobox, true);
-
-        // Save, Load and Manage buttons
-        $this->saveButton = Button::create('Save');
-        Box::append($configBox, $this->saveButton, false);
-
-        $this->loadButton = Button::create('Load');
-        Box::append($configBox, $this->loadButton, false);
-
-        $this->manageButton = Button::create('Manage');
-        Box::append($configBox, $this->manageButton, false);
-
-        Form::append($this->form, 'Configuration:', $configBox, false);
-
-        // Add immediate loading when configuration is selected
-        EditableCombobox::onChanged($this->saveConfigCombobox, function($combobox) {
-            $this->onConfigurationSelected();
-        });
-
-        // Validation Labels
-        $this->validationLabel = Label::create('');
-        Form::append($this->form, '', $this->validationLabel, false);
-
-        $this->detailedValidationLabel = Label::create('');
-        Form::append($this->form, '', $this->detailedValidationLabel, true);
-
-        // Test Control Button Box
-        $buttonBox = Box::newHorizontalBox();
-        Box::setPadded($buttonBox, true);
-
-        // Start Test Button
-        $this->startButton = Button::create('Start Test');
-        Box::append($buttonBox, $this->startButton, false);
-
-        // Stop Test Button
-        $this->stopButton = Button::create('Stop Test');
-        Control::disable($this->stopButton); // Initially disabled
-        Box::append($buttonBox, $this->stopButton, false);
-
-        Form::append($this->form, '', $buttonBox, false);
-
-        $this->setupEventHandlers();
+        return parent::castControl($control);
     }
 
     /**
-     * Set configuration values to form fields
+     * Create the configuration form UI
      * 
-     * @param array $config Configuration data
-     * @return void
+     * @return mixed libui control
      */
+    public function createForm()
+    {
+        // Create main form group
+        $this->formGroup = Group::create("输入 (Input)");
+        Group::setMargined($this->formGroup, true);
 
+        // Create form layout
+        $formBox = Box::newVerticalBox();
+        Box::setPadded($formBox, true);
+
+        // Create form fields
+        $this->createUrlField($formBox);
+        $this->createMethodAndConnectionsRow($formBox);
+        $this->createDurationAndTimeoutRow($formBox);
+        $this->createHeadersField($formBox);
+        $this->createBodyField($formBox);
+        $this->createButtonsRow($formBox);
+        $this->createErrorDisplay($formBox);
+
+        // Set form content
+        Group::setChild($this->formGroup, $formBox);
+
+        return $this->formGroup;
+    }
 
     /**
-     * Setup event handlers for form controls
-     * 
-     * @return void
+     * Create URL input field
      */
-    private function setupEventHandlers(): void
+    private function createUrlField($parent): void
     {
-        // Button click handlers
-        Button::onClicked($this->startButton, function($button) {
+        // URL row
+        $urlHBox = Box::newHorizontalBox();
+        Box::setPadded($urlHBox, true);
+
+        $urlLabel = Label::create("URL:");
+        Box::append($urlHBox, $urlLabel, false);
+
+        $this->urlEntry = Entry::create();
+        Entry::setText($this->urlEntry, "http://example.com");
+        
+        // Add real-time validation callback
+        $urlValidationCallback = function() {
+            $this->validateUrlField();
+        };
+        Entry::onChanged($this->urlEntry, $urlValidationCallback);
+        
+        Box::append($urlHBox, $this->urlEntry, true);
+
+        Box::append($parent, $urlHBox, false);
+    }
+
+    /**
+     * Create method and connections row
+     */
+    private function createMethodAndConnectionsRow($parent): void
+    {
+        $methodConnHBox = Box::newHorizontalBox();
+        Box::setPadded($methodConnHBox, true);
+
+        // HTTP Method
+        $methodLabel = Label::create("Method:");
+        Box::append($methodConnHBox, $methodLabel, false);
+
+        $this->methodCombobox = Combobox::create();
+        Combobox::append($this->methodCombobox, "GET");
+        Combobox::append($this->methodCombobox, "POST");
+        Combobox::append($this->methodCombobox, "PUT");
+        Combobox::append($this->methodCombobox, "DELETE");
+        Combobox::append($this->methodCombobox, "PATCH");
+        Combobox::setSelected($this->methodCombobox, 0); // Default to GET
+        Box::append($methodConnHBox, $this->methodCombobox, false);
+
+        // Connections
+        $connectionsLabel = Label::create("Connections:");
+        Box::append($methodConnHBox, $connectionsLabel, false);
+
+        $this->connectionsSpinbox = Spinbox::create(1, 1000);
+        Spinbox::setValue($this->connectionsSpinbox, 1);
+        Box::append($methodConnHBox, $this->connectionsSpinbox, false);
+
+        Box::append($parent, $methodConnHBox, false);
+    }
+
+    /**
+     * Create duration and timeout row
+     */
+    private function createDurationAndTimeoutRow($parent): void
+    {
+        $durTimeoutHBox = Box::newHorizontalBox();
+        Box::setPadded($durTimeoutHBox, true);
+
+        // Duration
+        $durationLabel = Label::create("Duration (s):");
+        Box::append($durTimeoutHBox, $durationLabel, false);
+
+        $this->durationSpinbox = Spinbox::create(1, 3600);
+        Spinbox::setValue($this->durationSpinbox, 10);
+        Box::append($durTimeoutHBox, $this->durationSpinbox, false);
+
+        // Timeout
+        $timeoutLabel = Label::create("Timeout (s):");
+        Box::append($durTimeoutHBox, $timeoutLabel, false);
+
+        $this->timeoutSpinbox = Spinbox::create(1, 300);
+        Spinbox::setValue($this->timeoutSpinbox, 30);
+        Box::append($durTimeoutHBox, $this->timeoutSpinbox, false);
+
+        Box::append($parent, $durTimeoutHBox, false);
+    }
+
+    /**
+     * Create headers input field
+     */
+    private function createHeadersField($parent): void
+    {
+        $headersLabel = Label::create("Request Headers (one per line, format: Header: Value):");
+        Box::append($parent, $headersLabel, false);
+
+        $this->headersEntry = MultilineEntry::create();
+        MultilineEntry::setText($this->headersEntry, "Content-Type: application/json\nUser-Agent: OHA-GUI-Tool");
+        Box::append($parent, $this->headersEntry, false);
+    }
+
+    /**
+     * Create body input field
+     */
+    private function createBodyField($parent): void
+    {
+        $bodyLabel = Label::create("Request Body:");
+        Box::append($parent, $bodyLabel, false);
+
+        $this->bodyEntry = MultilineEntry::create(true); // true for stretchable multiline entry
+        MultilineEntry::setText($this->bodyEntry, "");
+        
+        // Add real-time validation callback for body
+        $bodyValidationCallback = function() {
+            $this->validateBodyField();
+        };
+        MultilineEntry::onChanged($this->bodyEntry, $bodyValidationCallback);
+        
+        Box::append($parent, $this->bodyEntry, true); // true for stretching
+    }
+
+    /**
+     * Create buttons row
+     */
+    private function createButtonsRow($parent): void
+    {
+        $buttonsHBox = Box::newHorizontalBox();
+        Box::setPadded($buttonsHBox, true);
+
+        // Start button
+        $this->startButton = Button::create("开始测试");
+        $startCallback = function() {
             $this->onStartTest();
-        });
+        };
+        Button::onClicked($this->startButton, $startCallback, null);
+        Box::append($buttonsHBox, $this->startButton, false);
 
-        Button::onClicked($this->stopButton, function($button) {
+        // Stop button
+        $this->stopButton = Button::create("停止");
+        Control::disable($this->stopButton); // Initially disabled
+        $stopCallback = function() {
             $this->onStopTest();
-        });
+        };
+        Button::onClicked($this->stopButton, $stopCallback, null);
+        Box::append($buttonsHBox, $this->stopButton, false);
 
-        // Configuration management handlers
-        Button::onClicked($this->saveButton, function($button) {
+        // Save configuration button
+        $this->saveButton = Button::create("保存配置");
+        $saveCallback = function() {
             $this->onSaveConfig();
-        });
+        };
+        Button::onClicked($this->saveButton, $saveCallback, null);
+        Box::append($buttonsHBox, $this->saveButton, false);
 
-        Button::onClicked($this->loadButton, function($button) {
-            $this->onLoadConfig();
-        });
-
-        Button::onClicked($this->manageButton, function($button) {
-            $this->onManageConfig();
-        });
+        Box::append($parent, $buttonsHBox, false);
     }
 
     /**
-     * Handle manage configuration button click
-     *
-     * @return void
+     * Create error display
      */
-    private function onManageConfig(): void
+    private function createErrorDisplay($parent): void
     {
-        // Trigger callback if set
-        if ($this->onManageConfigCallback) {
-            ($this->onManageConfigCallback)();
+        $this->errorLabel = Label::create("");
+        Box::append($parent, $this->errorLabel, false);
+    }
+
+    /**
+     * Get current configuration from form fields
+     * 
+     * @return TestConfiguration
+     */
+    public function getConfiguration(): TestConfiguration
+    {
+        $config = new TestConfiguration();
+        
+        // Get URL
+        $urlPtr = Entry::text($this->urlEntry);
+        $config->url = $urlPtr;
+
+        // Get method
+        $methodIndex = Combobox::selected($this->methodCombobox);
+        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+        $config->method = $methods[$methodIndex] ?? 'GET';
+
+        // Get numeric values
+        $config->concurrentConnections = Spinbox::value($this->connectionsSpinbox);
+        $config->duration = Spinbox::value($this->durationSpinbox);
+        $config->timeout = Spinbox::value($this->timeoutSpinbox);
+
+        // Get headers
+        $headersPtr = MultilineEntry::text($this->headersEntry);
+        $config->headers = $this->parseHeaders($headersPtr);
+
+        // Get body
+        $bodyPtr = MultilineEntry::text($this->bodyEntry);
+        $this->freeText($bodyPtr);
+
+        return $config;
+    }
+
+    /**
+     * Set configuration values in form fields
+     * 
+     * @param TestConfiguration $config
+     */
+    public function setConfiguration(TestConfiguration $config): void
+    {
+        // Set URL
+        Entry::setText($this->urlEntry, $config->url);
+
+        // Set method
+        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+        $methodIndex = array_search($config->method, $methods);
+        if ($methodIndex !== false) {
+            Combobox::setSelected($this->methodCombobox, $methodIndex);
+        }
+
+        // Set numeric values
+        Spinbox::setValue($this->connectionsSpinbox, $config->concurrentConnections);
+        Spinbox::setValue($this->durationSpinbox, $config->duration);
+        Spinbox::setValue($this->timeoutSpinbox, $config->timeout);
+
+        // Set headers
+        $headersText = $this->formatHeaders($config->headers);
+        MultilineEntry::setText($this->headersEntry, $headersText);
+
+        // Set body
+        MultilineEntry::setText($this->bodyEntry, $config->body);
+
+        // Clear any error messages
+        $this->clearError();
+    }
+
+    /**
+     * Set form fields to read-only mode
+     * 
+     * @param bool $readOnly
+     */
+    public function setReadOnly(bool $readOnly): void
+    {
+        // Set URL entry read-only
+        if ($readOnly) {
+            Control::disable($this->urlEntry);
+        } else {
+            Control::enable($this->urlEntry);
+        }
+
+        // Set method combobox read-only
+        if ($readOnly) {
+            Control::disable($this->methodCombobox);
+        } else {
+            Control::enable($this->methodCombobox);
+        }
+
+        // Set numeric spinboxes read-only
+        if ($readOnly) {
+            Control::disable($this->connectionsSpinbox);
+            Control::disable($this->durationSpinbox);
+            Control::disable($this->timeoutSpinbox);
+        } else {
+            Control::enable($this->connectionsSpinbox);
+            Control::enable($this->durationSpinbox);
+            Control::enable($this->timeoutSpinbox);
+        }
+
+        // Set headers entry read-only
+        if ($readOnly) {
+            Control::disable($this->headersEntry);
+        } else {
+            Control::enable($this->headersEntry);
+        }
+
+        // Set body entry read-only
+        if ($readOnly) {
+            Control::disable($this->bodyEntry);
+        } else {
+            Control::enable($this->bodyEntry);
         }
     }
 
     /**
-     * Handle configuration selection from dropdown
-     *
-     * @return void
-     */
-    private function onConfigurationSelected(): void
-    {
-        $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
-
-        // Only load if a valid configuration name is selected
-        if (!empty($configName)) {
-            try {
-                // Check if configuration exists
-                if ($this->configManager->configurationExists($configName)) {
-                    // Load the configuration
-                    $config = $this->configManager->loadConfiguration($configName);
-                    if ($config) {
-                        // Store the loaded configuration
-                        $this->currentConfig = $config;
-
-                        // Trigger callback to load configuration in main window
-                        if ($this->onLoadConfigCallback) {
-                            ($this->onLoadConfigCallback)($config);
-                        }
-                    }
-                }
-            } catch (Exception $e) {
-                error_log("Error loading configuration: " . $e->getMessage());
-            }
-        }
-    }
-
-    /**
-     * Setup input validation
+     * Validate current form input
      * 
-     * @return void
-     */
-    private function setupValidation(): void
-    {
-        $this->validateInput();
-    }
-
-    /**
-     * Validate all input fields with comprehensive feedback
-     * 
-     * @return array Array of validation errors
+     * @return array Array of validation errors (empty if valid)
      */
     public function validateInput(): array
     {
         $config = $this->getConfiguration();
-        $this->validationResult = $this->validator->validateConfiguration($config);
-        $this->validationErrors = $this->validationResult['errors'];
-        
-        // Update validation display
-        $summary = $this->validator->getValidationSummary($this->validationResult);
-        Label::setText($this->validationLabel, $summary);
-        
-        // Update detailed validation display
-        if (!empty($this->validationResult['errors']) || !empty($this->validationResult['warnings'])) {
-            $detailedMessage = $this->validator->getDetailedValidationMessage($this->validationResult);
-            Label::setText($this->detailedValidationLabel, $detailedMessage);
-        } else {
-            Label::setText($this->detailedValidationLabel, '');
-        }
-        
-        // Enable/disable start button based on validation
-        if ($this->validationResult['isValid']) {
-            Control::enable($this->startButton);
-        } else {
-            Control::disable($this->startButton);
-        }
-        
-        return $this->validationErrors;
+        return $config->validate();
     }
 
     /**
-     * Parse headers from multiline text
+     * Validate individual field and show immediate feedback
+     * 
+     * @param string $fieldName Field to validate
+     * @return array Validation errors for the field
+     */
+    public function validateField(string $fieldName): array
+    {
+        $config = $this->getConfiguration();
+        $configArray = $config->toArray();
+        
+        // Use the comprehensive validator for detailed field validation
+        $allErrors = $this->validator->validateConfiguration($configArray);
+        
+        // Filter errors for the specific field
+        $fieldErrors = [];
+        foreach ($allErrors as $error) {
+            if (stripos($error, $fieldName) !== false || 
+                ($fieldName === 'url' && stripos($error, 'URL') !== false) ||
+                ($fieldName === 'method' && stripos($error, 'method') !== false) ||
+                ($fieldName === 'concurrentConnections' && stripos($error, 'connection') !== false) ||
+                ($fieldName === 'duration' && stripos($error, 'duration') !== false) ||
+                ($fieldName === 'timeout' && stripos($error, 'timeout') !== false) ||
+                ($fieldName === 'headers' && stripos($error, 'header') !== false) ||
+                ($fieldName === 'body' && stripos($error, 'body') !== false)) {
+                $fieldErrors[] = $error;
+            }
+        }
+        
+        return $fieldErrors;
+    }
+
+    /**
+     * Validate URL field specifically with detailed feedback
+     * 
+     * @param string $url URL to validate
+     * @return array Validation errors
+     */
+    public function validateUrl(string $url): array
+    {
+        $errors = [];
+        
+        if (empty(trim($url))) {
+            $errors[] = 'URL is required';
+            return $errors;
+        }
+        
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            $errors[] = 'URL format is invalid';
+        }
+        
+        $parsedUrl = parse_url($url);
+        if (!$parsedUrl || !isset($parsedUrl['scheme']) || !isset($parsedUrl['host'])) {
+            $errors[] = 'URL must include scheme (http/https) and host';
+        }
+        
+        if (isset($parsedUrl['scheme']) && !in_array($parsedUrl['scheme'], ['http', 'https'])) {
+            $errors[] = 'URL scheme must be http or https';
+        }
+        
+        return $errors;
+    }
+
+    /**
+     * Validate JSON body format
+     * 
+     * @param string $body JSON body to validate
+     * @param string $method HTTP method
+     * @return array Validation errors
+     */
+    public function validateJsonBody(string $body, string $method): array
+    {
+        $errors = [];
+        
+        if (empty(trim($body))) {
+            return $errors; // Empty body is valid
+        }
+        
+        $methodsWithBody = ['POST', 'PUT', 'PATCH'];
+        if (!in_array(strtoupper($method), $methodsWithBody)) {
+            return $errors; // Body validation not needed for GET/DELETE
+        }
+        
+        // Try to parse as JSON first
+        json_decode($body);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            // If not valid JSON, check if it's valid form data
+            if (!$this->isValidFormData($body)) {
+                $errors[] = 'Request body must be valid JSON or form data for ' . strtoupper($method) . ' requests';
+                $errors[] = 'JSON error: ' . json_last_error_msg();
+            }
+        }
+        
+        return $errors;
+    }
+
+    /**
+     * Check if string is valid form data format
+     * 
+     * @param string $string
+     * @return bool
+     */
+    private function isValidFormData(string $string): bool
+    {
+        // Form data must contain at least one = sign for key=value pairs
+        if (!str_contains($string, '=')) {
+            return false;
+        }
+        
+        // Simple check for form data format (key=value&key=value)
+        return preg_match('/^[^=&]+(=[^&]*)?(&[^=&]+(=[^&]*)?)*$/', $string) === 1;
+    }
+
+    /**
+     * Handle start test button click
+     */
+    public function onStartTest(): void
+    {
+        // Validate all fields with comprehensive feedback
+        if (!$this->validateAllFields()) {
+            return;
+        }
+
+        // Validate that a configuration name is selected (not "Select Config")
+        if ($this->onStartTestCallback !== null) {
+            $config = $this->getConfiguration();
+            if (empty($config->name) || $config->name === 'Select Config') {
+                $this->showValidationError("Please select a configuration name before starting the test");
+                return;
+            }
+        }
+
+        $this->showSuccess("Starting test...");
+
+        // Disable start button, enable stop button
+        Control::disable($this->startButton);
+        Control::enable($this->stopButton);
+
+        // Call callback if set
+        if ($this->onStartTestCallback !== null) {
+            ($this->onStartTestCallback)($this->getConfiguration());
+        }
+    }
+
+    /**
+     * Handle stop test button click
+     */
+    public function onStopTest(): void
+    {
+        // Enable start button, disable stop button
+        Control::enable($this->startButton);
+        Control::disable($this->stopButton);
+
+        // Call callback if set
+        if ($this->onStopTestCallback !== null) {
+            ($this->onStopTestCallback)();
+        }
+    }
+
+    /**
+     * Handle save configuration button click
+     */
+    public function onSaveConfig(): void
+    {
+        // Validate all fields with comprehensive feedback
+        if (!$this->validateAllFields()) {
+            return;
+        }
+
+        $this->showSuccess("Configuration is valid, saving...");
+
+        // Call callback if set
+        if ($this->onSaveConfigCallback !== null) {
+            ($this->onSaveConfigCallback)($this->getConfiguration());
+        }
+    }
+
+    /**
+     * Set start test callback
+     * 
+     * @param callable $callback
+     */
+    public function setOnStartTestCallback(callable $callback): void
+    {
+        $this->onStartTestCallback = $callback;
+    }
+
+    /**
+     * Set stop test callback
+     * 
+     * @param callable $callback
+     */
+    public function setOnStopTestCallback(callable $callback): void
+    {
+        $this->onStopTestCallback = $callback;
+    }
+
+    /**
+     * Set save configuration callback
+     * 
+     * @param callable $callback
+     */
+    public function setOnSaveConfigCallback(callable $callback): void
+    {
+        $this->onSaveConfigCallback = $callback;
+    }
+
+    /**
+     * Show error message
+     * 
+     * @param string $message
+     */
+    public function showError(string $message): void
+    {
+        Label::setText($this->errorLabel, "Error: " . $message);
+    }
+
+    /**
+     * Clear error message
+     */
+    public function clearError(): void
+    {
+        Label::setText($this->errorLabel, "");
+    }
+
+    /**
+     * Parse headers text into array
      * 
      * @param string $headersText
      * @return array
@@ -261,15 +616,13 @@ class ConfigurationForm
         
         foreach ($lines as $line) {
             $line = trim($line);
-            if (empty($line)) continue;
+            if (empty($line)) {
+                continue;
+            }
             
             $parts = explode(':', $line, 2);
             if (count($parts) === 2) {
-                $key = trim($parts[0]);
-                $value = trim($parts[1]);
-                if (!empty($key)) {
-                    $headers[$key] = $value;
-                }
+                $headers[trim($parts[0])] = trim($parts[1]);
             }
         }
         
@@ -277,7 +630,7 @@ class ConfigurationForm
     }
 
     /**
-     * Format headers array to multiline text
+     * Format headers array into text
      * 
      * @param array $headers
      * @return string
@@ -285,370 +638,185 @@ class ConfigurationForm
     private function formatHeaders(array $headers): string
     {
         $lines = [];
-        foreach ($headers as $key => $value) {
-            $lines[] = $key . ': ' . $value;
+        foreach ($headers as $name => $value) {
+            $lines[] = $name . ': ' . $value;
         }
         return implode("\n", $lines);
     }
 
     /**
-     * Handle start test button click
-     * 
-     * @return void
+     * Reset test buttons to initial state
      */
-    private function onStartTest(): void
-    {
-        if (!empty($this->validationErrors)) {
-            return;
-        }
-        
-        Control::disable($this->startButton);
-        Control::enable($this->stopButton);
-        
-        if ($this->onStartTestCallback) {
-            ($this->onStartTestCallback)($this->getConfiguration());
-        }
-    }
-
-    /**
-     * Handle stop test button click
-     * 
-     * @return void
-     */
-    private function onStopTest(): void
+    public function resetTestButtons(): void
     {
         Control::enable($this->startButton);
         Control::disable($this->stopButton);
-        
-        if ($this->onStopTestCallback) {
-            ($this->onStopTestCallback)();
-        }
     }
 
     /**
-     * Set callback for start test event
-     * 
-     * @param callable $callback
-     * @return void
+     * Validate URL field in real-time
      */
-    public function setOnStartTestCallback(callable $callback): void
+    private function validateUrlField(): void
     {
-        $this->onStartTestCallback = $callback;
-    }
-
-    /**
-     * Set callback for stop test event
-     * 
-     * @param callable $callback
-     * @return void
-     */
-    public function setOnStopTestCallback(callable $callback): void
-    {
-        $this->onStopTestCallback = $callback;
-    }
-
-    /**
-     * Get current validation result
-     * 
-     * @return array Current validation result
-     */
-    public function getValidationResult(): array
-    {
-        return $this->validationResult;
-    }
-
-    /**
-     * Check if configuration is valid
-     * 
-     * @return bool True if valid
-     */
-    public function isValid(): bool
-    {
-        return $this->validationResult['isValid'] ?? false;
-    }
-
-    /**
-     * Get validation errors for specific field
-     * 
-     * @param string $fieldName Field name
-     * @return string|null Error message or null if no error
-     */
-    public function getFieldError(string $fieldName): ?string
-    {
-        return $this->validationResult['fieldErrors'][$fieldName] ?? null;
-    }
-
-    /**
-     * Get the form control
-     * 
-     * @return CData
-     */
-    public function getControl(): CData
-    {
-        return $this->form;
-    }
-
-    /**
-     * Enable test execution controls
-     * 
-     * @return void
-     */
-    public function enableTestControls(): void
-    {
-        if (empty($this->validationErrors)) {
-            Control::enable($this->startButton);
-        }
-        Control::disable($this->stopButton);
-    }
-
-    /**
-     * Disable test execution controls
-     * 
-     * @return void
-     */
-    public function disableTestControls(): void
-    {
-        Control::disable($this->startButton);
-        Control::enable($this->stopButton);
-    }
-
-    /**
-     * Refresh the save configuration combobox list
-     * 
-     * @return void
-     */
-    private function refreshSaveConfigList(): void
-    {
-        try {
-            $configurations = $this->configManager->listConfigurations();
-            
-            // Clear existing items by removing and re-adding the combobox
-            // EditableCombobox doesn't have a direct way to clear items
-            // We'll work around this limitation by not clearing items directly
-            // Instead, we'll just append new items without clearing existing ones
-            foreach ($configurations as $config) {
-                EditableCombobox::append($this->saveConfigCombobox, $config['name']);
-            }
-        } catch (Exception $e) {
-            error_log("Error refreshing save config list: " . $e->getMessage());
-        }
-    }
-
-    /**
-     * Get current configuration
-     *
-     * @return TestConfiguration
-     */
-    public function getConfiguration(): TestConfiguration
-    {
-        // Return the currently loaded configuration, or a default one if none loaded
-        return $this->currentConfig ?? new TestConfiguration();
-    }
-
-
-
-    /**
-     * Handle save configuration button click
-     *
-     * @return void
-     */
-    private function onSaveConfig(): void
-    {
-        $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
-
-        if (empty($configName)) {
-            // Show error - configuration name is required
-            Label::setText($this->validationLabel, 'Error: Configuration name is required');
-            return;
-        }
-
-        // Get current configuration
-        $config = $this->getConfiguration();
-
-        // Validate configuration before saving
-        $errors = $config->validate();
+        $urlPtr = Entry::text($this->urlEntry);
+        $errors = $this->validateUrl($urlPtr);
         if (!empty($errors)) {
-            Label::setText($this->validationLabel, 'Error: ' . implode(', ', $errors));
-            return;
-        }
-
-        // Check if configuration exists
-        $exists = $this->configManager->configurationExists($configName);
-
-        try {
-            // Save configuration (will update if exists, create if not)
-            $success = $this->configManager->saveConfiguration($configName, $config);
-
-            if ($success) {
-                $action = $exists ? 'updated' : 'saved';
-                Label::setText($this->validationLabel, "✓ Configuration '{$configName}' {$action} successfully");
-
-                // Refresh the list
-                $this->refreshSaveConfigList();
-
-                // Enable start button
-                Control::enable($this->startButton);
-
-                // Trigger callback if set
-                if ($this->onSaveConfigCallback) {
-                    ($this->onSaveConfigCallback)($configName, $config, $exists);
-                }
-            } else {
-                Label::setText($this->validationLabel, "Error: Failed to save configuration '{$configName}'");
-                // Disable start button
-                Control::disable($this->startButton);
-            }
-        } catch (Exception $e) {
-            Label::setText($this->validationLabel, 'Error: ' . $e->getMessage());
-            // Disable start button
-            Control::disable($this->startButton);
-        }
-    }
-
-    /**
-     * Handle load configuration button click
-     *
-     * @return void
-     */
-    private function onLoadConfig(): void
-    {
-        $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
-
-        if (empty($configName)) {
-            Label::setText($this->validationLabel, 'Error: Please select or enter a configuration name');
-            return;
-        }
-
-        try {
-            $config = $this->configManager->loadConfiguration($configName);
-
-            if ($config) {
-                $this->setConfiguration($config);
-                Label::setText($this->validationLabel, "✓ Configuration '{$configName}' loaded successfully");
-
-                // Enable start button
-                Control::enable($this->startButton);
-
-                // Trigger callback if set
-                if ($this->onLoadConfigCallback) {
-                    ($this->onLoadConfigCallback)($config);
-                }
-            } else {
-                Label::setText($this->validationLabel, "Error: Configuration '{$configName}' not found");
-                // Disable start button
-                Control::disable($this->startButton);
-            }
-        } catch (Exception $e) {
-            Label::setText($this->validationLabel, 'Error: ' . $e->getMessage());
-            // Disable start button
-            Control::disable($this->startButton);
-        }
-    }
-
-    /**
-     * Handle configuration name change
-     *
-     * @return void
-     */
-    private function onConfigNameChanged(): void
-    {
-        $configName = trim(EditableCombobox::text($this->saveConfigCombobox));
-
-        if (!empty($configName)) {
-            $exists = $this->configManager->configurationExists($configName);
-            if ($exists) {
-                Label::setText($this->validationLabel, "Configuration '{$configName}' found - Save will update, Load will restore");
-                // Enable start button when a valid configuration is selected
-                Control::enable($this->startButton);
-            } else {
-                Label::setText($this->validationLabel, "New configuration '{$configName}' - Save will create new");
-                // Disable start button when configuration doesn't exist
-                Control::disable($this->startButton);
-            }
+            $this->showError(implode('; ', $errors));
         } else {
-            Label::setText($this->validationLabel, '');
-            // Disable start button when no configuration is selected
-            Control::disable($this->startButton);
+            $this->clearError();
         }
     }
 
     /**
-     * Set callback for save configuration event
+     * Validate body field in real-time
+     */
+    private function validateBodyField(): void
+    {
+        // Get current method
+        $methodIndex = Combobox::selected($this->methodCombobox);
+        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+        $method = $methods[$methodIndex] ?? 'GET';
+        
+        // Get body text
+        $bodyPtr = MultilineEntry::text($this->bodyEntry);
+
+        $errors = $this->validateJsonBody($bodyPtr, $method);
+        if (!empty($errors)) {
+            $this->showError(implode('; ', $errors));
+        } else {
+            $this->clearError();
+        }
+    }
+
+    /**
+     * Show validation error with improved formatting
      * 
-     * @param callable $callback
-     * @return void
+     * @param string $message
      */
-    public function setOnSaveConfigCallback(callable $callback): void
+    public function showValidationError(string $message): void
     {
-        $this->onSaveConfigCallback = $callback;
+        Label::setText($this->errorLabel, "⚠️ " . $message);
     }
 
     /**
-     * Set callback for load configuration event
-     *
-     * @param callable $callback
-     * @return void
-     */
-    public function setOnLoadConfigCallback(callable $callback): void
-    {
-        $this->onLoadConfigCallback = $callback;
-    }
-
-    /**
-     * Set callback for manage configuration event
-     *
-     * @param callable $callback
-     * @return void
-     */
-    public function setOnManageConfigCallback(callable $callback): void
-    {
-        $this->onManageConfigCallback = $callback;
-    }
-
-    /**
-     * Refresh configuration lists
+     * Show success message
      * 
-     * @return void
+     * @param string $message
      */
-    public function refreshConfigurationLists(): void
+    public function showSuccess(string $message): void
     {
-        $this->refreshSaveConfigList();
+        Label::setText($this->errorLabel, "✅ " . $message);
     }
 
     /**
-     * Set selected configuration in the combobox
+     * Validate all fields and show comprehensive feedback
      * 
-     * @param string $configName
-     * @return void
+     * @return bool True if all fields are valid
      */
-    public function setSelectedConfiguration(string $configName): void
+    public function validateAllFields(): bool
     {
-        EditableCombobox::setText($this->saveConfigCombobox, $configName);
+        $errors = $this->validateInput();
+        
+        if (!empty($errors)) {
+            $this->showValidationError(implode('; ', $errors));
+            return false;
+        }
+        
+        $this->clearError();
+        return true;
     }
 
     /**
-     * Clean up resources and libui controls
+     * Set configuration values in form fields without changing read-only state
+     * This method allows updating form values even when controls are disabled
      * 
-     * @return void
+     * @param TestConfiguration $config
+     */
+    public function setConfigurationWithoutStateChange(TestConfiguration $config): void
+    {
+        // Enable all controls temporarily to set values
+        $urlEnabled = Control::enabled($this->urlEntry);
+        $methodEnabled = Control::enabled($this->methodCombobox);
+        $connectionsEnabled = Control::enabled($this->connectionsSpinbox);
+        $durationEnabled = Control::enabled($this->durationSpinbox);
+        $timeoutEnabled = Control::enabled($this->timeoutSpinbox);
+        $headersEnabled = Control::enabled($this->headersEntry);
+        $bodyEnabled = Control::enabled($this->bodyEntry);
+        
+        // Temporarily enable controls to set values
+        Control::enable($this->urlEntry);
+        Control::enable($this->methodCombobox);
+        Control::enable($this->connectionsSpinbox);
+        Control::enable($this->durationSpinbox);
+        Control::enable($this->timeoutSpinbox);
+        Control::enable($this->headersEntry);
+        Control::enable($this->bodyEntry);
+
+        // Set URL
+        Entry::setText($this->urlEntry, $config->url);
+
+        // Set method
+        $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+        $methodIndex = array_search($config->method, $methods);
+        if ($methodIndex !== false) {
+            Combobox::setSelected($this->methodCombobox, $methodIndex);
+        }
+
+        // Set numeric values
+        Spinbox::setValue($this->connectionsSpinbox, $config->concurrentConnections);
+        Spinbox::setValue($this->durationSpinbox, $config->duration);
+        Spinbox::setValue($this->timeoutSpinbox, $config->timeout);
+
+        // Set headers
+        $headersText = $this->formatHeaders($config->headers);
+        MultilineEntry::setText($this->headersEntry, $headersText);
+
+        // Set body
+        MultilineEntry::setText($this->bodyEntry, $config->body);
+
+        // Restore previous enabled/disabled state
+        if (!$urlEnabled) Control::disable($this->urlEntry);
+        if (!$methodEnabled) Control::disable($this->methodCombobox);
+        if (!$connectionsEnabled) Control::disable($this->connectionsSpinbox);
+        if (!$durationEnabled) Control::disable($this->durationSpinbox);
+        if (!$timeoutEnabled) Control::disable($this->timeoutSpinbox);
+        if (!$headersEnabled) Control::disable($this->headersEntry);
+        if (!$bodyEnabled) Control::disable($this->bodyEntry);
+
+        // Clear any error messages
+        $this->clearError();
+    }
+
+    /**
+     * Cleanup resources
      */
     public function cleanup(): void
     {
         try {
-            // Clear callbacks to prevent memory leaks
+            // libui handles control cleanup automatically when parent is destroyed
+            $this->formGroup = null;
+            $this->urlEntry = null;
+            $this->methodCombobox = null;
+            $this->connectionsSpinbox = null;
+            $this->durationSpinbox = null;
+            $this->timeoutSpinbox = null;
+            $this->headersEntry = null;
+            $this->bodyEntry = null;
+            $this->startButton = null;
+            $this->stopButton = null;
+            $this->saveButton = null;
+            $this->errorLabel = null;
+            
+            // Clear callbacks
             $this->onStartTestCallback = null;
             $this->onStopTestCallback = null;
             $this->onSaveConfigCallback = null;
-            $this->onLoadConfigCallback = null;
             
-            // Clear validation data
-            $this->validationErrors = [];
-            $this->validationResult = [];
+            // Clear validator reference
+            $this->validator = null;
             
-            // Note: libui controls are automatically cleaned up when parent is destroyed
-            // We don't need to explicitly destroy individual controls
-            
-        } catch (Exception $e) {
-            error_log("Error during ConfigurationForm cleanup: " . $e->getMessage());
+        } catch (\Throwable $e) {
+            error_log("ConfigurationForm cleanup error: " . $e->getMessage());
         }
     }
 }
