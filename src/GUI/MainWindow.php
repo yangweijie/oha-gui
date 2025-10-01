@@ -835,7 +835,8 @@ class MainWindow extends BaseGUIComponent
      */
     public function update(): void
     {
-        if ($this->testExecutor !== null) {
+        // Only update if a test is actually running
+        if ($this->testExecutor !== null && $this->testExecutor->isRunning()) {
             $this->testExecutor->update();
         }
     }

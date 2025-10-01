@@ -6,6 +6,7 @@ namespace OhaGui\App;
 
 use Kingbes\Libui\App;
 use Kingbes\Libui\Base;
+use Kingbes\Libui\Timer;
 use OhaGui\GUI\MainWindow;
 use RuntimeException;
 use Throwable;
@@ -91,18 +92,13 @@ class OhaGuiApp extends Base
      */
     private function setupPeriodicTimer(): void
     {
-        $ffi = self::ffi();
-        
         // Create a timer that calls our update method every 100ms
-        $callback = function() {
+        Timer::create(100, function() {
             if ($this->mainWindow !== null) {
                 $this->mainWindow->update();
             }
             return 1; // Continue timer
-        };
-        
-        // Use uiTimer to create a periodic callback
-        $ffi->uiTimer(100, $callback, null);
+        });
     }
 
     /**

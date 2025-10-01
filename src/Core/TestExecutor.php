@@ -132,8 +132,8 @@ class TestExecutor
             return false;
         }
         
-        // Terminate the process
-        $terminated = proc_terminate($this->process);
+        // Terminate the process with SIGKILL to ensure it stops on macOS
+        $terminated = proc_terminate($this->process, 9); // SIGKILL
         
         if ($terminated) {
             $this->cleanup();
