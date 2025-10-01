@@ -136,7 +136,8 @@ class OhaCommandBuilder
             // Try to execute oha --version to verify it's working
             $output = [];
             $returnCode = 0;
-            exec(escapeshellarg($binaryPath) . ' --version 2>/dev/null', $output, $returnCode);
+
+            exec(escapeshellarg($binaryPath) . (CrossPlatform::isWindows()?' --version':' --version 2>/dev/null'), $output, $returnCode);
             
             return $returnCode === 0;
         } catch (\Exception $e) {
