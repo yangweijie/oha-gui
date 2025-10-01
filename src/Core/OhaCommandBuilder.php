@@ -6,6 +6,8 @@ use InvalidArgumentException;
 use OhaGui\Models\TestConfiguration;
 use OhaGui\Utils\CrossPlatform;
 use RuntimeException;
+use Psl\Filesystem;
+use Psl\Shell;
 
 /**
  * OhaCommandBuilder - Builds oha command strings from TestConfiguration objects
@@ -90,7 +92,7 @@ class OhaCommandBuilder
         
         // Only check local bin directory
         $localBinPath = getcwd() . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . $binaryName;
-        if (file_exists($localBinPath) && is_executable($localBinPath)) {
+        if (\Psl\Filesystem\exists($localBinPath) && \Psl\Filesystem\is_executable($localBinPath)) {
             return $localBinPath;
         }
         
@@ -134,12 +136,9 @@ class OhaCommandBuilder
             $binaryPath = $this->getOhaBinaryPath();
             
             // Try to execute oha --version to verify it's working
-            $output = [];
-            $returnCode = 0;
-
-            exec(escapeshellarg($binaryPath) . (CrossPlatform::isWindows()?' --version':' --version 2>/dev/null'), $output, $returnCode);
+            $result = \Psl\Shell\execute($binaryPath, ['--version']);
             
-            return $returnCode === 0;
+            return !empty($result);
         } catch (\Exception $e) {
             return false;
         }
@@ -156,7 +155,7 @@ class OhaCommandBuilder
             $binaryPath = $this->getOhaBinaryPath();
             
             // Check if file exists
-            if (!file_exists($binaryPath)) {
+            if (!\Psl\Filesystem\exists($binaryPath)) {
                 return [
                     'available' => false,
                     'error' => 'oha binary not found at: ' . $binaryPath
@@ -164,7 +163,7 @@ class OhaCommandBuilder
             }
             
             // Check if file is executable
-            if (!is_executable($binaryPath)) {
+            if (!\Psl\Filesystem\is_executable($binaryPath)) {
                 return [
                     'available' => false,
                     'error' => 'oha binary is not executable: ' . $binaryPath . '. Check file permissions.'
@@ -172,22 +171,13 @@ class OhaCommandBuilder
             }
             
             // Try to execute oha --version to verify it's working
-            $output = [];
-            $returnCode = 0;
-            exec(escapeshellarg($binaryPath) . ' --version 2>&1', $output, $returnCode);
-            
-            if ($returnCode !== 0) {
-                return [
-                    'available' => false,
-                    'error' => 'oha binary failed to execute (exit code: ' . $returnCode . '). Output: ' . implode(' ', $output)
-                ];
-            }
+            $output = \Psl\Shell\execute($binaryPath, ['--version']);
             
             return [
                 'available' => true,
                 'error' => '',
                 'path' => $binaryPath,
-                'version' => implode(' ', $output)
+                'version' => trim($output)
             ];
             
         } catch (\Exception $e) {
@@ -208,13 +198,9 @@ class OhaCommandBuilder
         try {
             $binaryPath = $this->getOhaBinaryPath();
             
-            $output = [];
-            $returnCode = 0;
-            exec(escapeshellarg($binaryPath) . ' --version 2>/dev/null', $output, $returnCode);
+            $output = \Psl\Shell\execute($binaryPath, ['--version']);
             
-            if ($returnCode === 0 && !empty($output)) {
-                return trim($output[0]);
-            }
+            return trim($output);
         } catch (\Exception $e) {
             // Ignore exceptions and return null
         }

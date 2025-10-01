@@ -4,6 +4,11 @@ namespace OhaGui\Core;
 
 use OhaGui\Models\TestResult;
 use OhaGui\Models\TestConfiguration;
+use Psl\Shell;
+use Psl\Env;
+use Psl\Str;
+use Psl\Vec;
+use Psl\Filesystem;
 
 /**
  * TestExecutor - Handles asynchronous execution of oha commands
@@ -14,7 +19,6 @@ use OhaGui\Models\TestConfiguration;
 class TestExecutor
 {
     private $process = null;
-    private array $pipes = [];
     private bool $isRunning = false;
     private string $outputBuffer = '';
     private $outputCallback = null;
@@ -51,16 +55,24 @@ class TestExecutor
         $this->completionCallback = $completionCallback;
         $this->outputBuffer = '';
         
+        // Parse command into parts
+        $commandParts = $this->parseCommand($command);
+        $binary = $commandParts[0];
+        $arguments = array_slice($commandParts, 1);
+        
+        // Set environment variables for better error reporting
+        $env = Env\get_vars();
+        $env['LC_ALL'] = 'C'; // Ensure consistent output format
+        
+        // Since PSL doesn't have an execute_async function, we'll use proc_open directly
+        // but with better error handling and process management
+        
         // Define pipe descriptors for process communication
         $descriptors = [
             0 => ['pipe', 'r'], // stdin
             1 => ['pipe', 'w'], // stdout
             2 => ['pipe', 'w']  // stderr
         ];
-        
-        // Set environment variables for better error reporting
-        $env = $_ENV;
-        $env['LC_ALL'] = 'C'; // Ensure consistent output format
         
         // Start the process with error handling
         $this->process = proc_open($command, $descriptors, $this->pipes, null, $env);
@@ -445,7 +457,7 @@ class TestExecutor
     private function validateOhaBinary(string $command): void
     {
         // Extract binary path from command (first argument)
-        $parts = explode(' ', trim($command));
+        $parts = $this->parseCommand($command);
         $binaryPath = $parts[0] ?? '';
         
         if (empty($binaryPath)) {
@@ -459,7 +471,7 @@ class TestExecutor
         if (strpos($binaryPath, DIRECTORY_SEPARATOR) === false) {
             // Binary name only - first check local bin directory
             $localBinPath = getcwd() . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . $binaryPath;
-            if (file_exists($localBinPath) && is_executable($localBinPath)) {
+            if (Filesystem\exists($localBinPath) && Filesystem\is_executable($localBinPath)) {
                 return;
             }
             
@@ -478,11 +490,11 @@ class TestExecutor
             }
         } else {
             // Full path - check if file exists and is executable
-            if (!file_exists($binaryPath)) {
+            if (!Filesystem\exists($binaryPath)) {
                 throw new \RuntimeException('oha binary not found at: ' . $binaryPath);
             }
             
-            if (!is_executable($binaryPath)) {
+            if (!Filesystem\is_executable($binaryPath)) {
                 throw new \RuntimeException('oha binary is not executable: ' . $binaryPath);
             }
         }
@@ -567,6 +579,47 @@ class TestExecutor
         }
         
         return (time() - $this->executionStartTime) > $this->executionTimeout;
+    }
+
+    /**
+     * Parse command string into parts
+     * 
+     * @param string $command The command string to parse
+     * @return array The command parts
+     */
+    private function parseCommand(string $command): array
+    {
+        // Use Psl\Shell\escape_argument to properly parse the command
+        // For now, we'll use a simple approach that works for most cases
+        $parts = [];
+        $current = '';
+        $inQuotes = false;
+        $quoteChar = '';
+        
+        for ($i = 0; $i < strlen($command); $i++) {
+            $char = $command[$i];
+            
+            if (!$inQuotes && ($char === '"' || $char === "'")) {
+                $inQuotes = true;
+                $quoteChar = $char;
+            } elseif ($inQuotes && $char === $quoteChar) {
+                $inQuotes = false;
+                $quoteChar = '';
+            } elseif (!$inQuotes && $char === ' ') {
+                if ($current !== '') {
+                    $parts[] = $current;
+                    $current = '';
+                }
+            } else {
+                $current .= $char;
+            }
+        }
+        
+        if ($current !== '') {
+            $parts[] = $current;
+        }
+        
+        return $parts;
     }
 
     /**

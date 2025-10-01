@@ -2,6 +2,7 @@
     "name": "yangweijie/oha-gui",
     "type": "project",
     "require": {
+        "azjezz/psl": "^4.0",
         "kingbes/libui": "*"
     },
     "autoload": {
