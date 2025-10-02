@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace OhaGui\GUI;
 
+use FFI\CData;
 use Kingbes\Libui\Box;
-use Kingbes\Libui\Control;
 use Kingbes\Libui\Label;
 use Kingbes\Libui\Group;
 use Kingbes\Libui\Button;
 use Kingbes\Libui\Separator;
 use OhaGui\Models\TestConfiguration;
+use Throwable;
 
 /**
  * Configuration table component for OHA GUI Tool
@@ -36,9 +37,9 @@ class ConfigurationTable extends BaseGUIComponent
     /**
      * Create the table UI control
      * 
-     * @return \FFI\CData libui control
+     * @return CData libui control
      */
-    public function createTable()
+    public function createTable(): CData
     {
         // Create table group
         $this->tableGroup = Group::create("Configurations");
@@ -142,9 +143,9 @@ class ConfigurationTable extends BaseGUIComponent
      * Create action buttons for a configuration row
      * 
      * @param string $configName
-     * @return mixed libui horizontal box with buttons
+     * @return CData libui horizontal box with buttons
      */
-    private function createActionButtons(string $configName)
+    private function createActionButtons(string $configName): CData
     {
         $buttonsHBox = Box::newHorizontalBox();
         Box::setPadded($buttonsHBox, true);
@@ -192,10 +193,6 @@ class ConfigurationTable extends BaseGUIComponent
     public function removeRow(string $configName): void
     {
         if (isset($this->configurationRows[$configName])) {
-            // Remove from UI (libui will handle cleanup)
-            $row = $this->configurationRows[$configName];
-//            Control::destroy($row);
-            
             // Remove from tracking
             unset($this->configurationRows[$configName]);
         }
@@ -225,7 +222,7 @@ class ConfigurationTable extends BaseGUIComponent
                 $this->createTableHeader();
                 Group::setChild($this->tableGroup, $this->tableVBox);
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("ConfigurationTable clearRows error: " . $e->getMessage());
             $this->configurationRows = [];
         }
@@ -378,22 +375,11 @@ class ConfigurationTable extends BaseGUIComponent
     }
 
     /**
-     * Refresh table display
-     */
-    public function refresh(): void
-    {
-        // Force UI update (if needed by libui)
-        if ($this->tableGroup !== null) {
-            // Get current table control
-        }
-    }
-
-    /**
      * Get the table control
      * 
      * @return mixed
      */
-    public function getControl()
+    public function getControl(): mixed
     {
         return $this->tableGroup;
     }
@@ -417,7 +403,7 @@ class ConfigurationTable extends BaseGUIComponent
             $this->onDeleteCallback = null;
             $this->onSelectCallback = null;
             
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("ConfigurationTable cleanup error: " . $e->getMessage());
         }
     }

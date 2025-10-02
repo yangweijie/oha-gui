@@ -11,7 +11,7 @@ use Kingbes\Libui\Label;
 use Kingbes\Libui\Entry;
 use Kingbes\Libui\Button;
 use OhaGui\Core\ConfigurationManager;
-use OhaGui\Models\TestConfiguration;
+use OhaGui\Utils\WindowHelper;
 use Throwable;
 
 /**
@@ -24,12 +24,9 @@ class ImportExportDialog extends BaseGUIComponent
     private $vbox;
     private $filePathEntry;
     private $browseButton;
-    private $importButton;
-    private $exportButton;
-    private $cancelButton;
     private $statusLabel;
     
-    private ?ConfigurationManager $configManager = null;
+    private ?ConfigurationManager $configManager;
     private $onImportCallback = null;
     private $onExportCallback = null;
 
@@ -156,29 +153,29 @@ class ImportExportDialog extends BaseGUIComponent
 
         if ($configName !== null) {
             // Export button
-            $this->exportButton = Button::create("Export");
+            $exportButton = Button::create("Export");
             $exportCallback = function() use ($configName) {
                 $this->onExport($configName);
             };
-            Button::onClicked($this->exportButton, $exportCallback);
-            Box::append($buttonsHBox, $this->exportButton, false);
+            Button::onClicked($exportButton, $exportCallback);
+            Box::append($buttonsHBox, $exportButton, false);
         } else {
             // Import button
-            $this->importButton = Button::create("Import");
+            $importButton = Button::create("Import");
             $importCallback = function() {
                 $this->onImport();
             };
-            Button::onClicked($this->importButton, $importCallback);
-            Box::append($buttonsHBox, $this->importButton, false);
+            Button::onClicked($importButton, $importCallback);
+            Box::append($buttonsHBox, $importButton, false);
         }
 
         // Cancel button
-        $this->cancelButton = Button::create("Cancel");
+        $cancelButton = Button::create("Cancel");
         $cancelCallback = function() {
             $this->onCancel();
         };
-        Button::onClicked($this->cancelButton, $cancelCallback);
-        Box::append($buttonsHBox, $this->cancelButton, false);
+        Button::onClicked($cancelButton, $cancelCallback);
+        Box::append($buttonsHBox, $cancelButton, false);
 
         // Add spacer to center buttons
         $spacer2 = Label::create("");
@@ -439,8 +436,8 @@ class ImportExportDialog extends BaseGUIComponent
         
         // Use WindowHelper to center the window
         try {
-            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
-        } catch (\Throwable $e) {
+            WindowHelper::centerWindow($this->window);
+        } catch (Throwable $e) {
             // Ignore errors in window centering
             error_log("Failed to center window: " . $e->getMessage());
         }

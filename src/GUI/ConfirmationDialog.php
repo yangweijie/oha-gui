@@ -9,6 +9,8 @@ use Kingbes\Libui\Window;
 use Kingbes\Libui\Box;
 use Kingbes\Libui\Label;
 use Kingbes\Libui\Button;
+use OhaGui\Utils\WindowHelper;
+use Throwable;
 
 /**
  * Confirmation dialog for OHA GUI Tool
@@ -18,9 +20,6 @@ class ConfirmationDialog extends BaseGUIComponent
 {
     private $window;
     private $vbox;
-    private $messageLabel;
-    private $yesButton;
-    private $noButton;
     private $onConfirmCallback = null;
     private $onCancelCallback = null;
 
@@ -80,8 +79,8 @@ class ConfirmationDialog extends BaseGUIComponent
         Box::setPadded($this->vbox, true);
 
         // Create message label
-        $this->messageLabel = Label::create($message);
-        Box::append($this->vbox, $this->messageLabel, true);
+        $messageLabel = Label::create($message);
+        Box::append($this->vbox, $messageLabel, true);
 
         // Create buttons
         $this->createButtons();
@@ -104,20 +103,20 @@ class ConfirmationDialog extends BaseGUIComponent
         Box::append($buttonsHBox, $spacer1, true);
 
         // Yes button
-        $this->yesButton = Button::create("Yes");
+        $yesButton = Button::create("确认");
         $yesCallback = function() {
             $this->onYes();
         };
-        Button::onClicked($this->yesButton, $yesCallback);
-        Box::append($buttonsHBox, $this->yesButton, false);
+        Button::onClicked($yesButton, $yesCallback);
+        Box::append($buttonsHBox, $yesButton, false);
 
         // No button
-        $this->noButton = Button::create("No");
+        $noButton = Button::create("取消");
         $noCallback = function() {
             $this->onNo();
         };
-        Button::onClicked($this->noButton, $noCallback);
-        Box::append($buttonsHBox, $this->noButton, false);
+        Button::onClicked($noButton, $noCallback);
+        Box::append($buttonsHBox, $noButton, false);
 
         // Add spacer to center buttons
         $spacer2 = Label::create("");
@@ -220,9 +219,8 @@ class ConfirmationDialog extends BaseGUIComponent
      */
     public static function showDeleteConfirmation(string $itemName, callable $onConfirm, $onCancel = null): void
     {
-        $dialog = new self();
-        $message = "你想删除 '{$itemName}'?\n\n 该操作无法撤销。";
-        $dialog->show("确认删除", $message, $onConfirm, $onCancel);
+        $message = "你想删除 '{$itemName}'?".PHP_EOL.PHP_EOL."该操作无法撤销。";
+        self::showConfirmation('确认删除?', $message, $onConfirm, $onCancel);
     }
 
     /**
@@ -233,7 +231,7 @@ class ConfirmationDialog extends BaseGUIComponent
      * @param callable $onConfirm Callback for confirmation
      * @param callable|null $onCancel Optional callback for cancellation
      */
-    public static function showConfirmation(string $title, string $message, callable $onConfirm, $onCancel = null): void
+    public static function showConfirmation(string $title, string $message, callable $onConfirm, callable $onCancel = null): void
     {
         $dialog = new self();
         $dialog->show($title, $message, $onConfirm, $onCancel);
@@ -250,8 +248,8 @@ class ConfirmationDialog extends BaseGUIComponent
         
         // Use WindowHelper to center the window
         try {
-            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
-        } catch (\Throwable $e) {
+            WindowHelper::centerWindow($this->window);
+        } catch (Throwable $e) {
             // Ignore errors in window centering
             error_log("Failed to center window: " . $e->getMessage());
         }
@@ -273,7 +271,7 @@ class ConfirmationDialog extends BaseGUIComponent
                 $this->window = null;
             }
 
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("ConfirmationDialog cleanup error: " . $e->getMessage());
         }
     }

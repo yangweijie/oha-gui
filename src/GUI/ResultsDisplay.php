@@ -48,7 +48,7 @@ class ResultsDisplay extends BaseGUIComponent
      * 
      * @return CData libui control
      */
-    public function createResultsDisplay()
+    public function createResultsDisplay(): CData
     {
         // Create main vertical box
         $mainVBox = Box::newVerticalBox();
@@ -68,7 +68,7 @@ class ResultsDisplay extends BaseGUIComponent
      * 
      * @param mixed $parent
      */
-    private function createResultsSection($parent): void
+    private function createResultsSection(mixed $parent): void
     {
         // Create results group
         $this->resultsGroup = Group::create("结果 (Results)");
@@ -140,7 +140,7 @@ class ResultsDisplay extends BaseGUIComponent
      * 
      * @param mixed $parent
      */
-    private function createOutputSection($parent): void
+    private function createOutputSection(mixed $parent): void
     {
         // Create output group
         $this->outputGroup = Group::create("测试输出 (Test Output)");

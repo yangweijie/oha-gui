@@ -48,6 +48,7 @@ class TestResult
 
     /**
      * Create result from array data
+     * @throws \Exception
      */
     public static function fromArray(array $data): self
     {

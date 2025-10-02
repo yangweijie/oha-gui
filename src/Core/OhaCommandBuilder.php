@@ -2,12 +2,13 @@
 
 namespace OhaGui\Core;
 
+use Exception;
 use InvalidArgumentException;
 use OhaGui\Models\TestConfiguration;
 use OhaGui\Utils\CrossPlatform;
 use RuntimeException;
-use Psl\Filesystem;
-use Psl\Shell;
+use function Psl\Filesystem\exists;
+use function Psl\Shell\execute;
 
 /**
  * OhaCommandBuilder - Builds oha command strings from TestConfiguration objects
@@ -92,7 +93,7 @@ class OhaCommandBuilder
         
         // Only check local bin directory
         $localBinPath = getcwd() . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . $binaryName;
-        if (\Psl\Filesystem\exists($localBinPath) && \Psl\Filesystem\is_executable($localBinPath)) {
+        if (exists($localBinPath) && \Psl\Filesystem\is_executable($localBinPath)) {
             return $localBinPath;
         }
         
@@ -136,10 +137,10 @@ class OhaCommandBuilder
             $binaryPath = $this->getOhaBinaryPath();
             
             // Try to execute oha --version to verify it's working
-            $result = \Psl\Shell\execute($binaryPath, ['--version']);
+            $result = execute($binaryPath, ['--version']);
             
             return !empty($result);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return false;
         }
     }
@@ -155,7 +156,7 @@ class OhaCommandBuilder
             $binaryPath = $this->getOhaBinaryPath();
             
             // Check if file exists
-            if (!\Psl\Filesystem\exists($binaryPath)) {
+            if (!exists($binaryPath)) {
                 return [
                     'available' => false,
                     'error' => 'oha binary not found at: ' . $binaryPath
@@ -171,7 +172,7 @@ class OhaCommandBuilder
             }
             
             // Try to execute oha --version to verify it's working
-            $output = \Psl\Shell\execute($binaryPath, ['--version']);
+            $output = execute($binaryPath, ['--version']);
             
             return [
                 'available' => true,
@@ -180,7 +181,7 @@ class OhaCommandBuilder
                 'version' => trim($output)
             ];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'available' => false,
                 'error' => $e->getMessage()
@@ -198,10 +199,10 @@ class OhaCommandBuilder
         try {
             $binaryPath = $this->getOhaBinaryPath();
             
-            $output = \Psl\Shell\execute($binaryPath, ['--version']);
+            $output = execute($binaryPath, ['--version']);
             
             return trim($output);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // Ignore exceptions and return null
         }
         

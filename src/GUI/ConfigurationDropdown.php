@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace OhaGui\GUI;
 
-use Kingbes\Libui\Base as LibuiBase;
+use FFI\CData;
 use Kingbes\Libui\Combobox;
 use OhaGui\Core\ConfigurationManager;
 use OhaGui\Models\TestConfiguration;
+use Throwable;
 
 /**
  * Configuration dropdown component for OHA GUI Tool
@@ -16,7 +17,7 @@ use OhaGui\Models\TestConfiguration;
 class ConfigurationDropdown extends BaseGUIComponent
 {
     private $combobox;
-    private ?ConfigurationManager $configManager = null;
+    private ?ConfigurationManager $configManager;
     private array $configurations = [];
     private $onSelectionChangedCallback = null;
     private string $placeholderText = "Select Config";
@@ -33,9 +34,9 @@ class ConfigurationDropdown extends BaseGUIComponent
     /**
      * Create the dropdown UI control
      * 
-     * @return mixed libui combobox control
+     * @return CData libui combobox control
      */
-    public function createDropdown()
+    public function createDropdown(): CData
     {
         // Create combobox
         $this->combobox = Combobox::create();
@@ -59,7 +60,7 @@ class ConfigurationDropdown extends BaseGUIComponent
     {
         try {
             $this->configurations = $this->configManager->listConfigurations();
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("Failed to load configurations: " . $e->getMessage());
             $this->configurations = [];
         }
@@ -178,7 +179,7 @@ class ConfigurationDropdown extends BaseGUIComponent
 
         try {
             return $this->configManager->loadConfiguration($configName);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("Failed to load configuration '$configName': " . $e->getMessage());
             return null;
         }
@@ -290,7 +291,7 @@ class ConfigurationDropdown extends BaseGUIComponent
      * 
      * @return mixed
      */
-    public function getControl()
+    public function getControl(): mixed
     {
         return $this->combobox;
     }

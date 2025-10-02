@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace OhaGui\GUI;
 
-use Kingbes\Libui\Base as LibuiBase;
+use FFI\CData;
 use Kingbes\Libui\Box;
 use Kingbes\Libui\Label;
 use Kingbes\Libui\Entry;
@@ -16,6 +16,7 @@ use Kingbes\Libui\Group;
 use Kingbes\Libui\Control;
 use OhaGui\Models\TestConfiguration;
 use OhaGui\Core\ConfigurationValidator;
+use Throwable;
 
 /**
  * Configuration form component for OHA GUI Tool
@@ -36,7 +37,7 @@ class ConfigurationForm extends BaseGUIComponent
     private $saveButton;
     private $errorLabel;
     
-    private ?ConfigurationValidator $validator = null;
+    private ?ConfigurationValidator $validator;
     private $onStartTestCallback = null;
     private $onStopTestCallback = null;
     private $onSaveConfigCallback = null;
@@ -63,9 +64,9 @@ class ConfigurationForm extends BaseGUIComponent
     /**
      * Create the configuration form UI
      * 
-     * @return mixed libui control
+     * @return CData libui control
      */
-    public function createForm()
+    public function createForm(): CData
     {
         // Create main form group
         $this->formGroup = Group::create("输入 (Input)");
@@ -815,7 +816,7 @@ class ConfigurationForm extends BaseGUIComponent
             // Clear validator reference
             $this->validator = null;
             
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("ConfigurationForm cleanup error: " . $e->getMessage());
         }
     }

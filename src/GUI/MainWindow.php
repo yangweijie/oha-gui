@@ -21,6 +21,8 @@ use OhaGui\Core\OhaCommandBuilder;
 use OhaGui\Core\ResultParser;
 use OhaGui\Core\ConfigurationManager;
 use OhaGui\Models\TestConfiguration;
+use OhaGui\Utils\WindowHelper;
+use Throwable;
 
 /**
  * Main window class for OHA GUI Tool
@@ -56,10 +58,10 @@ class MainWindow extends BaseGUIComponent
     private $configGroup = null;
     
     // Core components for test execution
-    private ?TestExecutor $testExecutor = null;
-    private ?OhaCommandBuilder $commandBuilder = null;
-    private ?ResultParser $resultParser = null;
-    private ?ConfigurationManager $configManager = null;
+    private ?TestExecutor $testExecutor;
+    private ?OhaCommandBuilder $commandBuilder;
+    private ?ResultParser $resultParser;
+    private ?ConfigurationManager $configManager;
 
     /**
      * Initialize the main window
@@ -184,8 +186,8 @@ class MainWindow extends BaseGUIComponent
         Box::append($this->vbox, $configGroup, false);
 
         // Add separator
-        $separator = Separator::createHorizontal();
-        Box::append($this->vbox, $separator, false);
+//        $separator = Separator::createHorizontal();
+//        Box::append($this->vbox, $separator, false);
         
         // Store reference to config group for later refresh
         $this->configGroup = $configGroup;
@@ -234,11 +236,11 @@ class MainWindow extends BaseGUIComponent
         Box::setPadded($vbox, false); // Remove padding
 
         // Status label
-        $this->statusLabel = Label::create("Ready to run test");
+        $this->statusLabel = Label::create("准备开始压测");
         Box::append($vbox, $this->statusLabel, true);
 
-//        $space = Separator::createHorizontal();
-//        Box::append($vbox, $space, true);
+        $space = Separator::createHorizontal();
+        Box::append($vbox, $space, false);
 
         // Create vertical metrics display
         // Requests per second
@@ -295,7 +297,7 @@ class MainWindow extends BaseGUIComponent
      * 
      * @return CData libui control
      */
-    private function createOutputSection()
+    private function createOutputSection(): CData
     {
         // Create output group
         $outputGroup = Group::create("测试输出 (Test Output)");
@@ -308,7 +310,7 @@ class MainWindow extends BaseGUIComponent
         // Create output text area - give it less space
         $this->outputEntry = MultilineEntry::create();
         MultilineEntry::setReadOnly($this->outputEntry, true);
-        $this->currentOutput = "Test output will appear here...";
+        $this->currentOutput = "这里将显示输出信息...";
         MultilineEntry::setText($this->outputEntry, $this->currentOutput);
         // Give it less stretch
         Box::append($outputVBox, $this->outputEntry, true);
@@ -320,7 +322,7 @@ class MainWindow extends BaseGUIComponent
         $spacer = Label::create("");
         Box::append($buttonHBox, $spacer, true);
 
-        $this->saveButton = Button::create("Save Results");
+        $this->saveButton = Button::create("保存测试详情");
         Control::disable($this->saveButton);
         $saveCallback = function() {
             $this->onSaveResults();
@@ -348,11 +350,9 @@ class MainWindow extends BaseGUIComponent
         Window::onClosing($this->window, $closingCallback);
 
         // Setup configuration dropdown selection callback
-        if ($this->configDropdown !== null) {
-            $this->configDropdown->onSelectionChanged(function (string $configName) {
-                $this->selectConfiguration($configName);
-            });
-        }
+        $this->configDropdown?->onSelectionChanged(function (string $configName) {
+            $this->selectConfiguration($configName);
+        });
 
         if ($this->configForm !== null) {
             $this->configForm->setOnStartTestCallback(function() {
@@ -496,9 +496,7 @@ class MainWindow extends BaseGUIComponent
      */
     public function refreshConfigurationDropdown(): void
     {
-        if ($this->configDropdown !== null) {
-            $this->configDropdown->refreshConfigurations();
-        }
+        $this->configDropdown?->refreshConfigurations();
     }
 
     /**
@@ -682,7 +680,6 @@ class MainWindow extends BaseGUIComponent
                     // Simple performance rating based on requests per second and success rate
                     $rps = $parsedResult->requestsPerSecond;
                     $successRate = $parsedResult->successRate;
-                    $performance = "Poor";
                     if ($successRate >= 95 && $rps >= 500) {
                         $performance = "Excellent";
                     } elseif ($successRate >= 95 && $rps >= 100) {
@@ -802,7 +799,7 @@ class MainWindow extends BaseGUIComponent
      * 
      * @param TestConfiguration $config
      */
-    private function saveConfiguration($config): void
+    private function saveConfiguration(TestConfiguration $config): void
     {
         try {
             // For now, generate a simple name based on URL and timestamp
@@ -820,9 +817,7 @@ class MainWindow extends BaseGUIComponent
                 $this->refreshConfigurationDropdown();
                 
                 // Also refresh the management window table if it exists
-                if ($this->configManagerWindow !== null) {
-                    $this->configManagerWindow->refreshTable();
-                }
+                $this->configManagerWindow?->refreshTable();
                 
                 // Show success message in results display temporarily
                 $this->resultsDisplay->updateStatus("Configuration saved as: " . $configName);
@@ -846,8 +841,8 @@ class MainWindow extends BaseGUIComponent
         
         // Use WindowHelper to center the window
         try {
-            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
-        } catch (\Throwable $e) {
+            WindowHelper::centerWindow($this->window);
+        } catch (Throwable $e) {
             // Ignore errors in window centering
             error_log("Failed to center window: " . $e->getMessage());
         }
@@ -927,7 +922,7 @@ class MainWindow extends BaseGUIComponent
                 $this->window = null;
             }
 
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("MainWindow cleanup error: " . $e->getMessage());
         }
     }

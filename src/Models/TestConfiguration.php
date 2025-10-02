@@ -3,7 +3,7 @@
 namespace OhaGui\Models;
 
 use DateTime;
-use InvalidArgumentException;
+use Exception;
 
 /**
  * TestConfiguration data model for storing HTTP load test parameters
@@ -64,6 +64,7 @@ class TestConfiguration
 
     /**
      * Create configuration from array data
+     * @throws Exception
      */
     public static function fromArray(array $data): self
     {

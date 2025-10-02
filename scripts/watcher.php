@@ -8,7 +8,7 @@
  */
 
 // Define application root path
-define('APP_ROOT', __DIR__ . '/..');
+const APP_ROOT = __DIR__ . '/..';
 
 // Require the Composer autoloader
 require_once APP_ROOT . '/vendor/autoload.php';
@@ -80,7 +80,7 @@ function runWatchMode($command)
 /**
  * Get timestamps for all PHP files in the app directory
  */
-function getPhpFileTimestamps()
+function getPhpFileTimestamps(): array
 {
     $timestamps = [];
     $iterator = new RecursiveIteratorIterator(
@@ -99,7 +99,7 @@ function getPhpFileTimestamps()
 /**
  * Check if any files have changed
  */
-function hasFileChanges($oldTimestamps, $newTimestamps)
+function hasFileChanges($oldTimestamps, $newTimestamps): bool
 {
     // Check for modified files
     foreach ($newTimestamps as $file => $timestamp) {
@@ -127,6 +127,7 @@ function startProcess($command)
     echo "Starting process: $cmd\n";
 
     // Start process in background
+    $pipes = [];
     $process = proc_open(
         $cmd,
         [
@@ -154,7 +155,7 @@ function startProcess($command)
 /**
  * Kill a process
  */
-function killProcess($process)
+function killProcess($process): void
 {
     echo "Terminating process...\n";
     $status = proc_get_status($process);
@@ -184,7 +185,7 @@ function killProcess($process)
 /**
  * Show help for watch mode
  */
-function showWatchHelp()
+function showWatchHelp(): void
 {
     echo "PHP Tools Hot Reload Watcher\n";
     echo "Usage: php scripts/watcher.php gui --watch\n";
@@ -199,7 +200,7 @@ function showWatchHelp()
 /**
  * Show general help
  */
-function showHelp()
+function showHelp(): void
 {
     echo "PHP Tools Hot Reload Watcher\n";
     echo "Usage: php scripts/watcher.php [command] [options]\n\n";

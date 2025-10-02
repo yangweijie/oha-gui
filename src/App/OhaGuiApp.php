@@ -174,16 +174,14 @@ class OhaGuiApp extends Base
     private function updateTestExecutor(): void
     {
         // If we have a main window, update its test executor
-        if ($this->mainWindow !== null) {
-            $this->mainWindow->updateTestExecutor();
-        }
+        $this->mainWindow?->updateTestExecutor();
     }
 
     /**
      * Handle application quit request
      * Called when user tries to quit the application
      * 
-     * @return bool true to allow quit, false to prevent
+     * @return bool true to allow to quit, false to prevent
      */
     public function onShouldQuit(): bool
     {

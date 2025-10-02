@@ -495,9 +495,7 @@ class ConfigurationValidator
         }
 
         // Then validate configuration structure and content
-        $errors = array_merge($errors, $this->validateConfiguration($data));
-
-        return $errors;
+        return array_merge($errors, $this->validateConfiguration($data));
     }
 
     /**
@@ -536,7 +534,6 @@ class ConfigurationValidator
      */
     public function sanitizeConfiguration(array $data): array
     {
-        $sanitized = [];
         $defaults = $this->getDefaultValues();
 
         // Apply defaults for missing optional fields

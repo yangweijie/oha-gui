@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace OhaGui\GUI;
 
-use Kingbes\Libui\Base as LibuiBase;
 use Kingbes\Libui\Control;
 use Kingbes\Libui\Window;
 use Kingbes\Libui\Box;
@@ -17,6 +16,7 @@ use Kingbes\Libui\Button;
 use OhaGui\Models\TestConfiguration;
 use OhaGui\Core\ConfigurationManager;
 use OhaGui\Core\ConfigurationValidator;
+use OhaGui\Utils\WindowHelper;
 use Throwable;
 
 /**
@@ -35,12 +35,10 @@ class ConfigurationDialog extends BaseGUIComponent
     private $timeoutSpinbox;
     private $headersEntry;
     private $bodyEntry;
-    private $saveButton;
-    private $cancelButton;
     private $errorLabel;
 
-    private ?ConfigurationManager $configManager = null;
-    private ?ConfigurationValidator $validator = null;
+    private ?ConfigurationManager $configManager;
+    private ?ConfigurationValidator $validator;
     private $onSaveCallback = null;
     private bool $isEditMode = false;
     private ?TestConfiguration $editingConfig;
@@ -219,20 +217,20 @@ class ConfigurationDialog extends BaseGUIComponent
         Box::setPadded($buttonsHBox, true);
 
         // Save button
-        $this->saveButton = Button::create("Save");
+        $saveButton = Button::create("Save");
         $saveCallback = function() {
             $this->onSave();
         };
-        Button::onClicked($this->saveButton, $saveCallback);
-        Box::append($buttonsHBox, $this->saveButton, false);
+        Button::onClicked($saveButton, $saveCallback);
+        Box::append($buttonsHBox, $saveButton, false);
 
         // Cancel button
-        $this->cancelButton = Button::create("Cancel");
+        $cancelButton = Button::create("Cancel");
         $cancelCallback = function() {
             $this->onCancel();
         };
-        Button::onClicked($this->cancelButton, $cancelCallback);
-        Box::append($buttonsHBox, $this->cancelButton, false);
+        Button::onClicked($cancelButton, $cancelCallback);
+        Box::append($buttonsHBox, $cancelButton, false);
 
         Box::append($this->vbox, $buttonsHBox, false);
     }
@@ -544,8 +542,8 @@ class ConfigurationDialog extends BaseGUIComponent
         
         // Use WindowHelper to center the window
         try {
-            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
-        } catch (\Throwable $e) {
+            WindowHelper::centerWindow($this->window);
+        } catch (Throwable $e) {
             // Ignore errors in window centering
             error_log("Failed to center window: " . $e->getMessage());
         }

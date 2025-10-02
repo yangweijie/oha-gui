@@ -22,11 +22,11 @@ class CrossPlatform
     {
         $os = strtolower(PHP_OS);
         
-        if (strpos($os, 'win') === 0) {
+        if (str_starts_with($os, 'win')) {
             return self::OS_WINDOWS;
-        } elseif (strpos($os, 'darwin') === 0) {
+        } elseif (str_starts_with($os, 'darwin')) {
             return self::OS_MACOS;
-        } elseif (strpos($os, 'linux') === 0) {
+        } elseif (str_starts_with($os, 'linux')) {
             return self::OS_LINUX;
         }
         

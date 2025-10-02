@@ -4,6 +4,7 @@ namespace OhaGui\Utils;
 
 use Kingbes\Libui\Window as LibuiWindow;
 use FFI\CData;
+use Throwable;
 
 /**
  * Window helper utility for cross-platform window operations
@@ -39,7 +40,7 @@ class WindowHelper
             LibuiWindow::setPosition($window, (int)$x, (int)$y);
             
             return true;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // Ignore errors
             return false;
         }
@@ -52,20 +53,14 @@ class WindowHelper
      */
     private static function getScreenSize(): ?array
     {
-        $os = strtolower(PHP_OS);
-        
-        if (strpos($os, 'darwin') === 0) {
-            // macOS
-            return self::getScreenSizeMacOS();
-        } elseif (strpos($os, 'win') === 0) {
-            // Windows
-            return self::getScreenSizeWindows();
-        } elseif (strpos($os, 'linux') === 0) {
-            // Linux
-            return self::getScreenSizeLinux();
-        }
-        
-        return null;
+        $os = CrossPlatform::getOperatingSystem();
+
+        return match ($os) {
+            CrossPlatform::OS_MACOS => self::getScreenSizeMacOS(),
+            CrossPlatform::OS_LINUX => self::getScreenSizeLinux(),
+            CrossPlatform::OS_WINDOWS => self::getScreenSizeWindows(),
+            default => null,
+        };
     }
     
     /**

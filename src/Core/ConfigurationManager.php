@@ -2,9 +2,10 @@
 
 namespace OhaGui\Core;
 
+use DateTime;
+use Exception;
 use OhaGui\Models\TestConfiguration;
 use OhaGui\Utils\FileManager;
-use OhaGui\Core\ConfigurationValidator;
 use RuntimeException;
 use InvalidArgumentException;
 
@@ -94,8 +95,8 @@ class ConfigurationManager
             
         } catch (RuntimeException $e) {
             // Try to recover from common file system errors
-            if (strpos($e->getMessage(), 'permission') !== false || 
-                strpos($e->getMessage(), 'writable') !== false) {
+            if (str_contains($e->getMessage(), 'permission') ||
+                str_contains($e->getMessage(), 'writable')) {
                 
                 // Attempt recovery and retry once
                 if ($this->fileManager->attemptRecovery($name, 'write')) {
@@ -120,7 +121,7 @@ class ConfigurationManager
      * @param string $name Configuration name (filename without extension)
      * @return TestConfiguration|null Configuration object or null if not found
      * @throws RuntimeException If file exists but cannot be loaded or parsed
-     * @throws InvalidArgumentException If loaded configuration is invalid
+     * @throws InvalidArgumentException|Exception If loaded configuration is invalid
      */
     public function loadConfiguration(string $name): ?TestConfiguration
     {
@@ -156,8 +157,8 @@ class ConfigurationManager
             
         } catch (RuntimeException $e) {
             // Try to recover from read permission issues
-            if (strpos($e->getMessage(), 'permission') !== false || 
-                strpos($e->getMessage(), 'readable') !== false) {
+            if (str_contains($e->getMessage(), 'permission') ||
+                str_contains($e->getMessage(), 'readable')) {
                 
                 // Attempt recovery and retry once
                 if ($this->fileManager->attemptRecovery($name, 'read')) {
@@ -177,7 +178,7 @@ class ConfigurationManager
             }
             
             // Check if this is a corrupted file that we can potentially recover
-            if (strpos($e->getMessage(), 'JSON') !== false || strpos($e->getMessage(), 'parse') !== false) {
+            if (str_contains($e->getMessage(), 'JSON') || str_contains($e->getMessage(), 'parse')) {
                 throw new RuntimeException(
                     "Configuration file '{$name}' appears to be corrupted: " . $e->getMessage() . 
                     ". You may need to recreate this configuration or restore from a backup."
@@ -202,8 +203,8 @@ class ConfigurationManager
             error_log("Warning: Failed to list configuration files: " . $e->getMessage());
             
             // Try to recover from permission issues
-            if (strpos($e->getMessage(), 'permission') !== false || 
-                strpos($e->getMessage(), 'readable') !== false) {
+            if (str_contains($e->getMessage(), 'permission') ||
+                str_contains($e->getMessage(), 'readable')) {
                 
                 // Attempt recovery and try again
                 if ($this->fileManager->attemptRecovery('', 'read')) {
@@ -333,8 +334,9 @@ class ConfigurationManager
 
     /**
      * Get a summary of all configurations with basic info
-     * 
+     *
      * @return array Array of configuration summaries
+     * @throws Exception
      */
     public function getConfigurationSummaries(): array
     {
@@ -395,7 +397,7 @@ class ConfigurationManager
      * @param array $data Configuration data array
      * @return bool True on success
      * @throws RuntimeException If import fails
-     * @throws InvalidArgumentException If data is invalid
+     * @throws InvalidArgumentException|Exception If data is invalid
      */
     public function importConfiguration(string $name, array $data): bool
     {
@@ -412,12 +414,12 @@ class ConfigurationManager
      * 
      * @param string $name Configuration name
      * @return array|null Configuration data array or null if not found
-     * @throws RuntimeException If export fails
+     * @throws RuntimeException|Exception If export fails
      */
     public function exportConfiguration(string $name): ?array
     {
         $config = $this->loadConfiguration($name);
-        return $config ? $config->toArray() : null;
+        return $config?->toArray();
     }
 
     /**
@@ -427,7 +429,7 @@ class ConfigurationManager
      * @param string $targetName Target configuration name
      * @return bool True on success
      * @throws RuntimeException If duplication fails
-     * @throws InvalidArgumentException If source doesn't exist or target name is invalid
+     * @throws InvalidArgumentException|Exception If source doesn't exist or target name is invalid
      */
     public function duplicateConfiguration(string $sourceName, string $targetName): bool
     {
@@ -440,8 +442,8 @@ class ConfigurationManager
         // Create a copy with updated timestamps
         $targetConfig = TestConfiguration::fromArray($sourceConfig->toArray());
         $targetConfig->name = $targetName;
-        $targetConfig->createdAt = new \DateTime();
-        $targetConfig->updatedAt = new \DateTime();
+        $targetConfig->createdAt = new DateTime();
+        $targetConfig->updatedAt = new DateTime();
 
         return $this->saveConfiguration($targetName, $targetConfig);
     }
@@ -476,8 +478,9 @@ class ConfigurationManager
 
     /**
      * Get comprehensive file system health information
-     * 
+     *
      * @return array Health check results with recommendations
+     * @throws Exception
      */
     public function getFileSystemHealth(): array
     {

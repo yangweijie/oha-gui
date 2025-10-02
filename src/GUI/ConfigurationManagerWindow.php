@@ -10,9 +10,6 @@ use Kingbes\Libui\Box;
 use Kingbes\Libui\Label;
 use Kingbes\Libui\Button;
 use Kingbes\Libui\Separator;
-use OhaGui\GUI\ConfigurationTable;
-use OhaGui\GUI\ConfigurationDialog;
-use OhaGui\GUI\ConfirmationDialog;
 use OhaGui\Core\ConfigurationManager;
 use OhaGui\Utils\WindowHelper;
 use Throwable;
@@ -28,7 +25,7 @@ class ConfigurationManagerWindow extends BaseGUIComponent
     private $addButton;
     private ?ConfigurationTable $configTable = null;
     private ?ConfigurationDialog $configDialog = null;
-    private ?ConfigurationManager $configManager = null;
+    private ?ConfigurationManager $configManager;
     private $onConfigurationSelectedCallback = null;
     private $onConfigurationChangedCallback = null;
 
@@ -204,10 +201,9 @@ class ConfigurationManagerWindow extends BaseGUIComponent
 
     /**
      * Handle configuration imported event
-     * 
-     * @param string $configName
+     *
      */
-    public function onConfigurationImported(string $configName): void
+    public function onConfigurationImported(): void
     {
         // Refresh the table to show imported configuration
         $this->refreshTable();
@@ -273,10 +269,9 @@ class ConfigurationManagerWindow extends BaseGUIComponent
 
     /**
      * Handle configuration saved event
-     * 
-     * @param string $configName
+     *
      */
-    public function onConfigurationSaved(string $configName): void
+    public function onConfigurationSaved(): void
     {
         // Refresh the table to show updated configurations
         $this->refreshTable();
@@ -390,7 +385,7 @@ class ConfigurationManagerWindow extends BaseGUIComponent
      * 
      * @return mixed
      */
-    public function getWindow()
+    public function getWindow(): mixed
     {
         return $this->window;
     }

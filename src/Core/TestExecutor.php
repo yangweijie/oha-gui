@@ -2,17 +2,15 @@
 
 namespace OhaGui\Core;
 
+use Exception;
 use InvalidArgumentException;
 use OhaGui\Models\TestResult;
 use OhaGui\Models\TestConfiguration;
-use Psl\Shell;
 use Psl\Env;
-use Psl\Str;
-use Psl\Vec;
 use Psl\Filesystem;
 use RuntimeException;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
-use Symfony\Component\Process\Exception\ProcessFailedException;
 
 /**
  * TestExecutor - Handles asynchronous execution of oha commands
@@ -83,7 +81,7 @@ class TestExecutor
             
             // Start monitoring the process in a separate loop
             $this->monitorProcess();
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->isRunning = false;
             throw new RuntimeException('Failed to start oha process: ' . $e->getMessage() . ' (Command: ' . $command . ')');
         }
@@ -127,7 +125,7 @@ class TestExecutor
             $this->process = null;
             
             return true;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // Log the error but still consider the stop operation successful
             error_log("Error stopping process: " . $e->getMessage());
             $this->isRunning = false;
@@ -174,13 +172,7 @@ class TestExecutor
      */
     private function monitorProcess(): void
     {
-        if (!$this->isRunning || $this->process === null) {
-            return;
-        }
-        
-        // Use a separate process to monitor the process
-        // We'll check the process status periodically
-        // This approach is simpler and more reliable
+
     }
     
     /**
@@ -382,13 +374,11 @@ class TestExecutor
             }
             
             // Create and return test result
-            $testResult = $this->createTestResultFromOutput($fullOutput, $exitCode);
-            
-            return $testResult;
-        } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
+            return $this->createTestResultFromOutput($fullOutput, $exitCode);
+        } catch (ProcessTimedOutException $e) {
             // Handle timeout specifically
             throw new RuntimeException('Test execution timed out after ' . $timeoutSeconds . ' seconds');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             throw new RuntimeException('Failed to execute oha process: ' . $e->getMessage() . ' (Command: ' . $command . ')');
         }
     }
@@ -413,7 +403,7 @@ class TestExecutor
         $binaryPath = trim($binaryPath, '"\'');
         
         // Check if it's just a binary name (in PATH) or a full path
-        if (strpos($binaryPath, DIRECTORY_SEPARATOR) === false) {
+        if (!str_contains($binaryPath, DIRECTORY_SEPARATOR)) {
             // Binary name only - first check local bin directory
             $localBinPath = getcwd() . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . $binaryPath;
             if (Filesystem\exists($localBinPath) && Filesystem\is_executable($localBinPath)) {

@@ -121,7 +121,7 @@ class UserMessages
         
         $message .= "\n\nSuggested solutions:\n";
         foreach ($error['solutions'] as $i => $solution) {
-            $message .= ($i + 1) . ". " . $solution . "\n";
+            $message .= $i . ". " . $solution . "\n";
         }
 
         return $message;

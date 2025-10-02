@@ -2,6 +2,7 @@
 
 namespace OhaGui\Utils;
 
+use DirectoryIterator;
 use Exception;
 use RuntimeException;
 
@@ -184,12 +185,12 @@ class FileManager
                 $errorMsg = $error ? $error['message'] : 'Unknown error';
                 
                 // Provide specific error messages
-                if (strpos($errorMsg, 'Permission denied') !== false) {
+                if (str_contains($errorMsg, 'Permission denied')) {
                     throw new RuntimeException(
                         "Permission denied: Cannot write to temporary file '{$tempFile}'. " .
                         "Please check directory permissions."
                     );
-                } elseif (strpos($errorMsg, 'No space left') !== false) {
+                } elseif (str_contains($errorMsg, 'No space left')) {
                     throw new RuntimeException(
                         "Disk full: Cannot write configuration file '{$filename}'. " .
                         "Please free up disk space and try again."
@@ -294,12 +295,12 @@ class FileManager
                 $error = error_get_last();
                 $errorMsg = $error ? $error['message'] : 'Unknown error';
                 
-                if (strpos($errorMsg, 'Permission denied') !== false) {
+                if (str_contains($errorMsg, 'Permission denied')) {
                     throw new RuntimeException(
                         "Permission denied: Cannot read configuration file '{$filename}'. " .
                         "Please check file permissions."
                     );
-                } elseif (strpos($errorMsg, 'No such file') !== false) {
+                } elseif (str_contains($errorMsg, 'No such file')) {
                     throw new RuntimeException(
                         "Configuration file disappeared during read: '{$filename}'. " .
                         "The file may have been deleted by another process."
@@ -342,12 +343,10 @@ class FileManager
 
             return $data;
             
+        } catch (RuntimeException $e) {
+            throw $e;
         } catch (Exception $e) {
-            if ($e instanceof RuntimeException) {
-                throw $e;
-            } else {
-                throw new RuntimeException("Failed to load configuration file '{$filename}': " . $e->getMessage());
-            }
+            throw new RuntimeException("Failed to load configuration file '{$filename}': " . $e->getMessage());
         }
     }
 
@@ -397,7 +396,7 @@ class FileManager
         }
 
         $files = [];
-        $iterator = new \DirectoryIterator($this->configDirectory);
+        $iterator = new DirectoryIterator($this->configDirectory);
         
         foreach ($iterator as $file) {
             if ($file->isDot() || !$file->isFile()) {

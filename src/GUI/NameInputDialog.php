@@ -19,10 +19,8 @@ class NameInputDialog extends BaseGUIComponent
 {
     private $window;
     private $vbox;
-    private $messageLabel;
     private $nameEntry;
     private $okButton;
-    private $cancelButton;
     private $errorLabel;
     private $onOkCallback = null;
     private $onCancelCallback = null;
@@ -86,8 +84,8 @@ class NameInputDialog extends BaseGUIComponent
         Box::setPadded($this->vbox, true);
 
         // Create message label
-        $this->messageLabel = Label::create($message);
-        Box::append($this->vbox, $this->messageLabel, false);
+        $messageLabel = Label::create($message);
+        Box::append($this->vbox, $messageLabel, false);
 
         // Create input field
         $this->nameEntry = Entry::create();
@@ -129,12 +127,12 @@ class NameInputDialog extends BaseGUIComponent
         Box::append($buttonsHBox, $this->okButton, false);
 
         // Cancel button
-        $this->cancelButton = Button::create("Cancel");
+        $cancelButton = Button::create("Cancel");
         $cancelCallback = function() {
             $this->onCancel();
         };
-        Button::onClicked($this->cancelButton, $cancelCallback);
-        Box::append($buttonsHBox, $this->cancelButton, false);
+        Button::onClicked($cancelButton, $cancelCallback);
+        Box::append($buttonsHBox, $cancelButton, false);
 
         // Add spacer to center buttons
         $spacer2 = Label::create("");
@@ -357,10 +355,10 @@ class NameInputDialog extends BaseGUIComponent
 
     /**
      * Static method to show save configuration name dialog
-     * 
+     *
      * @param string $defaultName Default configuration name
-     * @param callable $onSave Callback for save (receives name)
-     * @param callable|null $onCancel Optional callback for cancellation
+     * @param callable|null $onSave Callback for save (receives name)
+     * @param null $onCancel Optional callback for cancellation
      */
     public static function showSaveConfigurationDialog(string $defaultName = "", callable $onSave = null, $onCancel = null): void
     {

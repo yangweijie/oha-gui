@@ -33,7 +33,7 @@ class ResultParser
         
         // If we have a configuration, we can calculate or get additional metrics
         if ($config !== null) {
-            $metrics = $this->enhanceMetricsWithConfig($metrics, $config);
+            $metrics = $this->enhanceMetricsWithConfig($metrics);
         }
         
         // Populate TestResult object with extracted metrics
@@ -78,7 +78,7 @@ class ResultParser
         
         // Extract total requests from status code distribution
         // Look for patterns like "[200] 4579 responses"
-        if (preg_match_all('/\[\d+\]\s*(\d+)\s+responses/', $output, $matches)) {
+        if (preg_match_all('/\[\d+]\s*(\d+)\s+responses/', $output, $matches)) {
             $totalRequests = 0;
             foreach ($matches[1] as $count) {
                 $totalRequests += (int)$count;
@@ -90,7 +90,7 @@ class ResultParser
         // Look for patterns like "[14] connection closed before message completed"
         // Only match lines in the "Error distribution" section
         if (preg_match('/Error distribution:\s*(.*?)\s*(?:\n\s*\n|$)/s', $output, $errorSection)) {
-            if (preg_match_all('/^\s*\[(\d+)\]\s+.+$/m', $errorSection[1], $matches)) {
+            if (preg_match_all('/^\s*\[(\d+)]\s+.+$/m', $errorSection[1], $matches)) {
                 $failedRequests = 0;
                 foreach ($matches[1] as $count) {
                     $failedRequests += (int)$count;
@@ -164,10 +164,9 @@ class ResultParser
      * Enhance metrics with configuration data
      * 
      * @param array $metrics The extracted metrics
-     * @param TestConfiguration $config The test configuration
      * @return array Enhanced metrics
      */
-    private function enhanceMetricsWithConfig(array $metrics, TestConfiguration $config): array
+    private function enhanceMetricsWithConfig(array $metrics): array
     {
         // For now, we just return the metrics as-is
         // In the future, we might add configuration-specific enhancements

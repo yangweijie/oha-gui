@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace OhaGui\GUI;
 
+use FFI\CData;
 use Kingbes\Libui\Box;
-use Kingbes\Libui\Label;
 use Kingbes\Libui\Group;
 use Kingbes\Libui\MultilineEntry;
 use OhaGui\Models\TestConfiguration;
+use Throwable;
 
 /**
  * Request overview component for OHA GUI Tool
@@ -30,9 +31,9 @@ class RequestOverview extends BaseGUIComponent
     /**
      * Create the request overview UI
      * 
-     * @return \FFI\CData libui control
+     * @return CData libui control
      */
-    public function createOverview()
+    public function createOverview(): CData
     {
         // Create main overview group
         $this->overviewGroup = Group::create("输入 (Input)");
@@ -45,7 +46,7 @@ class RequestOverview extends BaseGUIComponent
         // Create overview text area with controlled height
         $this->overviewEntry = MultilineEntry::create();
         MultilineEntry::setReadOnly($this->overviewEntry, true);
-        MultilineEntry::setText($this->overviewEntry, "请选择一个配置以查看请求详情" . PHP_EOL . "配置:" . PHP_EOL . "URL: " . PHP_EOL . "Method: " . PHP_EOL . "Connections: " . PHP_EOL . "Duration: " . PHP_EOL . "Timeout: " . PHP_EOL . "Headers: " . PHP_EOL . "Body: ");
+        $this->setDefaultOverview();
         
         // Set the text area with fixed height by not allowing it to stretch
         Box::append($overviewBox, $this->overviewEntry, true);
@@ -72,13 +73,13 @@ class RequestOverview extends BaseGUIComponent
         $overviewText .= "Duration: " . $config->duration . "s | Timeout: " . $config->timeout . "s" . PHP_EOL;
         
         // Format headers
-        $headersText = "";
+        $headersText = [];
         if (!empty($config->headers)) {
             foreach ($config->headers as $name => $value) {
-                $headersText .= "$name: $value" . PHP_EOL;
+                $headersText[] = "$name: $value";
             }
         }
-        $overviewText .= "Headers: " . ($headersText ?: 'None') . PHP_EOL;
+        $overviewText .= "Headers: " . ($headersText ? implode(PHP_EOL, $headersText): 'None') . PHP_EOL;
         
         // Add body if present
         $overviewText .= "Body: " . ($config->body ?: 'None') . PHP_EOL;
@@ -91,7 +92,15 @@ class RequestOverview extends BaseGUIComponent
      */
     public function setDefaultOverview(): void
     {
-        MultilineEntry::setText($this->overviewEntry, "请选择一个配置以查看请求详情" . PHP_EOL . "配置:" . PHP_EOL . "URL: " . PHP_EOL . "Method: | Connections: " . PHP_EOL . "Duration: s | Timeout: s" . PHP_EOL . "Headers: " . PHP_EOL . "Body: ");
+        MultilineEntry::setText($this->overviewEntry, <<<TXT
+请选择一个配置以查看请求详情
+配置:
+URL:
+Method:  | Connections: 
+Duration: | Timeout: 
+Headers:
+Body:
+TXT);
     }
 
     /**
@@ -104,7 +113,7 @@ class RequestOverview extends BaseGUIComponent
             $this->overviewGroup = null;
             $this->overviewEntry = null;
             
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             error_log("RequestOverview cleanup error: " . $e->getMessage());
         }
     }
