@@ -55,8 +55,8 @@ class ConfirmationDialog extends BaseGUIComponent
         // Create dialog window
         $this->window = Window::create(
             $title,
-            400,  // width
-            150,  // height
+            300,  // width
+            120,  // height
             0     // no menubar
         );
 

@@ -93,7 +93,7 @@ class ConfigurationDialog extends BaseGUIComponent
         $this->window = Window::create(
             $title,
             500,  // width
-            600,  // height
+            580,  // height
             0     // no menubar
         );
 
@@ -217,7 +217,7 @@ class ConfigurationDialog extends BaseGUIComponent
         Box::setPadded($buttonsHBox, true);
 
         // Save button
-        $saveButton = Button::create("Save");
+        $saveButton = Button::create("保存");
         $saveCallback = function() {
             $this->onSave();
         };
@@ -225,7 +225,7 @@ class ConfigurationDialog extends BaseGUIComponent
         Box::append($buttonsHBox, $saveButton, false);
 
         // Cancel button
-        $cancelButton = Button::create("Cancel");
+        $cancelButton = Button::create("取消");
         $cancelCallback = function() {
             $this->onCancel();
         };

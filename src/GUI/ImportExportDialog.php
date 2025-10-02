@@ -43,7 +43,7 @@ class ImportExportDialog extends BaseGUIComponent
      * 
      * @param callable|null $onImport Callback for import success (receives config name)
      */
-    public function showImportDialog($onImport = null): void
+    public function showImportDialog(callable $onImport = null): void
     {
         $this->onImportCallback = $onImport;
         $this->createDialog("导入配置");
@@ -56,7 +56,7 @@ class ImportExportDialog extends BaseGUIComponent
      * @param string $configName Configuration name to export
      * @param callable|null $onExport Callback for export success
      */
-    public function showExportDialog(string $configName, $onExport = null): void
+    public function showExportDialog(string $configName, callable $onExport = null): void
     {
         $this->onExportCallback = $onExport;
         $this->createDialog("导出配置", $configName);
@@ -79,7 +79,7 @@ class ImportExportDialog extends BaseGUIComponent
         $this->window = Window::create(
             $title,
             500,  // width
-            250,  // height
+            150,  // height
             0     // no menubar
         );
 
@@ -102,7 +102,7 @@ class ImportExportDialog extends BaseGUIComponent
         Box::setPadded($this->vbox, true);
 
         // Create file path input
-        $fileLabel = Label::create("File Path:");
+        $fileLabel = Label::create("文件路径:");
         Box::append($this->vbox, $fileLabel, false);
 
         // Create horizontal box for file path entry and browse button
@@ -112,7 +112,7 @@ class ImportExportDialog extends BaseGUIComponent
         $this->filePathEntry = Entry::create();
         Box::append($fileHBox, $this->filePathEntry, true);
 
-        $this->browseButton = Button::create("Browse...");
+        $this->browseButton = Button::create("浏览...");
         Box::append($fileHBox, $this->browseButton, false);
 
         Box::append($this->vbox, $fileHBox, false);
@@ -153,7 +153,7 @@ class ImportExportDialog extends BaseGUIComponent
 
         if ($configName !== null) {
             // Export button
-            $exportButton = Button::create("Export");
+            $exportButton = Button::create("导出");
             $exportCallback = function() use ($configName) {
                 $this->onExport($configName);
             };
@@ -161,7 +161,7 @@ class ImportExportDialog extends BaseGUIComponent
             Box::append($buttonsHBox, $exportButton, false);
         } else {
             // Import button
-            $importButton = Button::create("Import");
+            $importButton = Button::create("导入");
             $importCallback = function() {
                 $this->onImport();
             };
@@ -170,7 +170,7 @@ class ImportExportDialog extends BaseGUIComponent
         }
 
         // Cancel button
-        $cancelButton = Button::create("Cancel");
+        $cancelButton = Button::create("取消");
         $cancelCallback = function() {
             $this->onCancel();
         };
