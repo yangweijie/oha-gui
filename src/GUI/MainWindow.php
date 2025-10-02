@@ -208,15 +208,14 @@ class MainWindow extends BaseGUIComponent
         $this->stopButton = Button::create("停止测试");
         Box::append($buttonHBox, $this->stopButton, true);
 
-        // Create progress bar
-        $this->progressBar = ProgressBar::create();
-        ProgressBar::setValue($this->progressBar, 0); // Set progress bar to indeterminate state initially
-        Box::append($this->vbox, $this->progressBar, false);
-        // Don't hide the progress bar initially, just keep it in indeterminate state
-        Control::hide($this->progressBar);
         // Add button box to main layout
         Box::append($this->vbox, $buttonHBox, false);
-
+        
+        // Create progress bar
+        $this->progressBar = ProgressBar::create();
+        ProgressBar::setValue($this->progressBar, 0); // Hide progress bar initially
+        Box::append($this->vbox, $this->progressBar, false);
+        Control::hide($this->progressBar); // Hide progress bar initially
     }
 
     /**
@@ -648,75 +647,87 @@ class MainWindow extends BaseGUIComponent
                 Control::disable($this->saveButton);
             }
 
-            // Execute the test synchronously
-            $testResult = $this->testExecutor->executeTestSync($command, 300); // 5 minute timeout
-            
-            // Parse the result using ResultParser for better metrics
-            $parsedResult = $this->resultParser->parseOutput($testResult->rawOutput);
-            
-            // Update status
-            if ($this->statusLabel !== null) {
-                Label::setText($this->statusLabel, "Test completed");
-            }
-
-            // Update metrics
-            if ($this->requestsPerSecLabel !== null) {
-                Label::setText($this->requestsPerSecLabel, number_format($parsedResult->requestsPerSecond, 2));
-            }
-
-            if ($this->totalRequestsLabel !== null) {
-                Label::setText($this->totalRequestsLabel, number_format($parsedResult->totalRequests));
-            }
-
-            if ($this->successRateLabel !== null) {
-                Label::setText($this->successRateLabel, number_format($parsedResult->successRate, 2) . '%');
-            }
-
-            if ($this->performanceLabel !== null) {
-                // Simple performance rating based on requests per second and success rate
-                $rps = $parsedResult->requestsPerSecond;
-                $successRate = $parsedResult->successRate;
-                $performance = "Poor";
-                if ($successRate >= 95 && $rps >= 500) {
-                    $performance = "Excellent";
-                } elseif ($successRate >= 95 && $rps >= 100) {
-                    $performance = "Very Good";
-                } elseif ($successRate >= 95 && $rps >= 50) {
-                    $performance = "Good";
-                } elseif ($successRate >= 95 && $rps >= 10) {
-                    $performance = "Fair";
-                } elseif ($successRate >= 95) {
-                    $performance = "Poor";
-                } else {
-                    $performance = "Poor (Low Success Rate)";
+            // Set up callbacks for real-time output and completion
+            $outputCallback = function($output) {
+                // Append output to the output entry
+                if ($this->outputEntry !== null) {
+                    $this->currentOutput .= $output;
+                    MultilineEntry::setText($this->outputEntry, $this->currentOutput);
                 }
-                Label::setText($this->performanceLabel, $performance);
-            }
-
-            // Display the raw output in the test output area
-            if ($this->outputEntry !== null) {
-                $this->currentOutput = $testResult->rawOutput;
-                MultilineEntry::setText($this->outputEntry, $this->currentOutput);
-            }
+            };
             
-            // Enable save button
-            if ($this->saveButton !== null) {
-                Control::enable($this->saveButton);
-            }
+            $completionCallback = function($testResult) {
+                // Parse the result using ResultParser for better metrics
+                $parsedResult = $this->resultParser->parseOutput($testResult->rawOutput);
+                
+                // Update status
+                if ($this->statusLabel !== null) {
+                    Label::setText($this->statusLabel, "Test completed");
+                }
 
-            // Re-enable start button and disable stop button
-            if ($this->startButton !== null) {
-                Control::enable($this->startButton);
-            }
-            if ($this->stopButton !== null) {
-                Control::disable($this->stopButton);
-            }
+                // Update metrics
+                if ($this->requestsPerSecLabel !== null) {
+                    Label::setText($this->requestsPerSecLabel, number_format($parsedResult->requestsPerSecond, 2));
+                }
+
+                if ($this->totalRequestsLabel !== null) {
+                    Label::setText($this->totalRequestsLabel, number_format($parsedResult->totalRequests));
+                }
+
+                if ($this->successRateLabel !== null) {
+                    Label::setText($this->successRateLabel, number_format($parsedResult->successRate, 2) . '%');
+                }
+
+                if ($this->performanceLabel !== null) {
+                    // Simple performance rating based on requests per second and success rate
+                    $rps = $parsedResult->requestsPerSecond;
+                    $successRate = $parsedResult->successRate;
+                    $performance = "Poor";
+                    if ($successRate >= 95 && $rps >= 500) {
+                        $performance = "Excellent";
+                    } elseif ($successRate >= 95 && $rps >= 100) {
+                        $performance = "Very Good";
+                    } elseif ($successRate >= 95 && $rps >= 50) {
+                        $performance = "Good";
+                    } elseif ($successRate >= 95 && $rps >= 10) {
+                        $performance = "Fair";
+                    } elseif ($successRate >= 95) {
+                        $performance = "Poor";
+                    } else {
+                        $performance = "Poor (Low Success Rate)";
+                    }
+                    Label::setText($this->performanceLabel, $performance);
+                }
+
+                // Display the raw output in the test output area
+                if ($this->outputEntry !== null) {
+                    $this->currentOutput = $testResult->rawOutput;
+                    MultilineEntry::setText($this->outputEntry, $this->currentOutput);
+                }
+                
+                // Enable save button
+                if ($this->saveButton !== null) {
+                    Control::enable($this->saveButton);
+                }
+
+                // Re-enable start button and disable stop button
+                if ($this->startButton !== null) {
+                    Control::enable($this->startButton);
+                }
+                if ($this->stopButton !== null) {
+                    Control::disable($this->stopButton);
+                }
+                
+                // Hide progress bar
+                if ($this->progressBar !== null) {
+                    ProgressBar::setValue($this->progressBar, 0);
+                    Control::hide($this->progressBar);
+                }
+            };
             
-            // Hide progress bar
-            if ($this->progressBar !== null) {
-                ProgressBar::setValue($this->progressBar, 0);
-                Control::hide($this->progressBar);
-            }
+            // Start the test asynchronously
+            $this->testExecutor->executeTest($command, $this->currentConfig, $outputCallback, $completionCallback);
+            
         } catch (Exception $e) {
             // Re-enable start button and disable stop button on error
             if ($this->startButton !== null) {
@@ -918,6 +929,20 @@ class MainWindow extends BaseGUIComponent
 
         } catch (\Throwable $e) {
             error_log("MainWindow cleanup error: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Update the test executor
+     * This method should be called periodically to monitor test execution
+     */
+    public function updateTestExecutor(): void
+    {
+        if ($this->testExecutor !== null) {
+            // Only call update if a test is actually running
+            if ($this->testExecutor->isRunning()) {
+                $this->testExecutor->update();
+            }
         }
     }
 

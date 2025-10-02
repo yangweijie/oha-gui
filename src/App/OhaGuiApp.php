@@ -74,6 +74,10 @@ class OhaGuiApp extends Base
             App::onShouldQuit(function () {
                 return $this->onShouldQuit();
             });
+            
+            // Set up a timer to periodically update the test executor
+            $this->setupTestExecutorTimer();
+
             // Start the main event loop
             App::main();
 
@@ -135,6 +139,44 @@ class OhaGuiApp extends Base
     public function isRunning(): bool
     {
         return $this->isRunning;
+    }
+
+    /**
+     * Set up a timer to periodically update the test executor
+     */
+    private function setupTestExecutorTimer(): void
+    {
+        // Create a repeating timer
+        $this->createRepeatingTimer(100);
+    }
+    
+    /**
+     * Create a repeating timer
+     */
+    private function createRepeatingTimer(int $milliseconds): void
+    {
+        App::timer($milliseconds, function () use ($milliseconds) {
+            if ($this->mainWindow !== null && $this->isRunning) {
+                $this->mainWindow->updateTestExecutor();
+            }
+            // Create the next timer if the app is still running
+            if ($this->isRunning) {
+                $this->createRepeatingTimer($milliseconds);
+            }
+            return false; // Don't continue this timer instance
+        });
+    }
+
+    /**
+     * Update the test executor periodically
+     * This method is called by the libui event loop to monitor test execution
+     */
+    private function updateTestExecutor(): void
+    {
+        // If we have a main window, update its test executor
+        if ($this->mainWindow !== null) {
+            $this->mainWindow->updateTestExecutor();
+        }
     }
 
     /**

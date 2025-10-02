@@ -24,7 +24,6 @@ class TestExecutorTest
     {
         assertFalse($this->executor->isRunning());
         assertEquals('', $this->executor->getOutput());
-        assertNull($this->executor->getProcessStatus());
     }
     
     public function testExecuteSimpleCommand()
@@ -186,27 +185,15 @@ class TestExecutorTest
         }
     }
     
-    public function testProcessStatusWhenRunning()
+    public function testIsRunningMethod()
     {
         $command = 'sleep 2';
         
         $this->executor->executeTest($command);
         assertTrue($this->executor->isRunning());
         
-        $status = $this->executor->getProcessStatus();
-        assertIsArray($status);
-        assertArrayHasKey('running', $status);
-        assertTrue($status['running']);
-        
         // Clean up
         $this->executor->stopTest();
-    }
-    
-    public function testProcessStatusWhenNotRunning()
-    {
-        assertFalse($this->executor->isRunning());
-        $status = $this->executor->getProcessStatus();
-        assertNull($status);
     }
     
     public function testOutputCallbackReceivesRealTimeData()

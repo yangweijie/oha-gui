@@ -3,7 +3,6 @@
 namespace OhaGui\Core;
 
 use InvalidArgumentException;
-use Kingbes\Libui\App;
 use OhaGui\Models\TestResult;
 use OhaGui\Models\TestConfiguration;
 use Psl\Shell;
@@ -12,6 +11,8 @@ use Psl\Str;
 use Psl\Vec;
 use Psl\Filesystem;
 use RuntimeException;
+use Symfony\Component\Process\Process;
+use Symfony\Component\Process\Exception\ProcessFailedException;
 
 /**
  * TestExecutor - Handles asynchronous execution of oha commands
@@ -21,8 +22,7 @@ use RuntimeException;
  */
 class TestExecutor
 {
-    private $process = null;
-    private array $pipes = [];
+    private ?Process $process = null;
     private bool $isRunning = false;
     private string $outputBuffer = '';
     private $outputCallback = null;
@@ -61,67 +61,32 @@ class TestExecutor
         
         // Parse command into parts
         $commandParts = $this->parseCommand($command);
-        $binary = $commandParts[0];
-        $arguments = array_slice($commandParts, 1);
         
         // Set environment variables for better error reporting
         $env = Env\get_vars();
         $env['LC_ALL'] = 'C'; // Ensure consistent output format
         
-        // Since PSL doesn't have an execute_async function, we'll use proc_open directly
-        // but with better error handling and process management
+        // Create Symfony Process
+        $this->process = new Process($commandParts, null, $env);
         
-        // Define pipe descriptors for process communication
-        $descriptors = [
-            0 => ['pipe', 'r'], // stdin
-            1 => ['pipe', 'w'], // stdout
-            2 => ['pipe', 'w']  // stderr
-        ];
-        
-        // Start the process with error handling
-        $this->process = proc_open($command, $descriptors, $this->pipes, null, $env);
-        
-        if (!is_resource($this->process)) {
-            $error = error_get_last();
-            $errorMsg = $error ? $error['message'] : 'Unknown error';
-            throw new RuntimeException('Failed to start oha process: ' . $errorMsg . ' (Command: ' . $command . ')');
+        // Set timeout if specified
+        if ($this->executionTimeout !== null) {
+            $this->process->setTimeout($this->executionTimeout);
+        } else {
+            $this->process->setTimeout(null); // No timeout
         }
         
-        // Check if process started successfully
-        $status = proc_get_status($this->process);
-        if (!$status['running'] && $status['exitcode'] !== -1) {
-            $this->cleanup();
-            throw new RuntimeException('Process failed to start or exited immediately with code: ' . $status['exitcode']);
+        try {
+            // Start the process
+            $this->process->start();
+            $this->isRunning = true;
+            
+            // Start monitoring the process in a separate loop
+            $this->monitorProcess();
+        } catch (\Exception $e) {
+            $this->isRunning = false;
+            throw new RuntimeException('Failed to start oha process: ' . $e->getMessage() . ' (Command: ' . $command . ')');
         }
-        
-        $this->isRunning = true;
-        
-        // Set pipes to non-blocking mode for real-time output
-        // On Windows, stream_set_blocking may not work as expected, so we'll handle it gracefully
-        if (!@stream_set_blocking($this->pipes[1], false)) {
-            // On Windows, we'll use a different approach for non-blocking reads
-            // This is a known limitation, but we can still proceed
-            if (PHP_OS_FAMILY !== 'Windows') {
-                $this->cleanup();
-                throw new RuntimeException('Failed to set stdout to non-blocking mode');
-            }
-        }
-        
-        if (!@stream_set_blocking($this->pipes[2], false)) {
-            // On Windows, we'll use a different approach for non-blocking reads
-            // This is a known limitation, but we can still proceed
-            if (PHP_OS_FAMILY !== 'Windows') {
-                $this->cleanup();
-                throw new RuntimeException('Failed to set stderr to non-blocking mode');
-            }
-        }
-        
-        // Close stdin as we don't need to send input to oha
-        fclose($this->pipes[0]);
-        unset($this->pipes[0]);
-        
-        // Start monitoring the process
-        $this->monitorProcess();
     }
     
     /**
@@ -131,30 +96,44 @@ class TestExecutor
      */
     public function stopTest(): bool
     {
-        if (!$this->isRunning || !is_resource($this->process)) {
+        if (!$this->isRunning || $this->process === null) {
             return false;
         }
         
-        // Terminate the process
-        // Use different approach for Windows vs Unix-like systems
-        if (PHP_OS_FAMILY === 'Windows') {
-            // On Windows, we need to use a different approach
-            $terminated = proc_terminate($this->process);
-        } else {
-            // On Unix-like systems, use SIGKILL to ensure it stops
-            $terminated = proc_terminate($this->process, 9); // SIGKILL
-        }
-        
-        if ($terminated) {
-            $this->cleanup();
+        try {
+            // Terminate the process
+            $this->process->stop(5); // Give 5 seconds for graceful termination
+            
+            // Read any remaining output
+            $this->readRemainingOutput();
             
             // Call output callback with termination message
             if ($this->outputCallback) {
                 call_user_func($this->outputCallback, "\n[Test stopped by user]\n");
             }
+            
+            // Create a test result for the stopped test
+            if ($this->completionCallback) {
+                $testResult = new TestResult();
+                $testResult->rawOutput = $this->outputBuffer . "\n[Test stopped by user]\n";
+                $testResult->requestsPerSecond = 0.0;
+                $testResult->totalRequests = 0;
+                $testResult->failedRequests = 0;
+                $testResult->successRate = 0.0;
+                call_user_func($this->completionCallback, $testResult);
+            }
+            
+            $this->isRunning = false;
+            $this->process = null;
+            
+            return true;
+        } catch (\Exception $e) {
+            // Log the error but still consider the stop operation successful
+            error_log("Error stopping process: " . $e->getMessage());
+            $this->isRunning = false;
+            $this->process = null;
+            return true;
         }
-        
-        return $terminated;
     }
 
     
@@ -165,22 +144,19 @@ class TestExecutor
      */
     public function isRunning(): bool
     {
-        if (!$this->isRunning) {
+        if (!$this->isRunning || $this->process === null) {
             return false;
         }
         
         // Check if process is still running
-        if (is_resource($this->process)) {
-            $status = proc_get_status($this->process);
-            if (!$status['running']) {
-                $this->isRunning = false;
-                $this->handleProcessCompletion();
-            }
+        if ($this->process->isRunning()) {
+            return true;
         } else {
+            // Process has completed
             $this->isRunning = false;
+            $this->handleProcessCompletion();
+            return false;
         }
-        
-        return $this->isRunning;
     }
     
     /**
@@ -198,84 +174,13 @@ class TestExecutor
      */
     private function monitorProcess(): void
     {
-        // This method should be called periodically to check for output
-        // In a GUI application, this would typically be called from a timer or event loop
-        
-        if (!$this->isRunning || !is_resource($this->process)) {
+        if (!$this->isRunning || $this->process === null) {
             return;
         }
         
-        // Check for timeout
-        if ($this->hasTimedOut()) {
-            $this->handleTimeout();
-            return;
-        }
-        
-        // Read from stdout with error handling
-        try {
-            // On Windows, we need to handle streams differently
-            if (PHP_OS_FAMILY === 'Windows') {
-                // For Windows, we'll try to read in non-blocking mode without setting it explicitly
-                $output = fread($this->pipes[1], 8192);
-                if ($output !== false && $output !== '') {
-                    $this->outputBuffer .= $output;
-                    
-                    if ($this->outputCallback) {
-                        call_user_func($this->outputCallback, $output);
-                    }
-                }
-            } else {
-                // Unix-like systems
-                $output = stream_get_contents($this->pipes[1]);
-                if ($output !== false && $output !== '') {
-                    $this->outputBuffer .= $output;
-                    
-                    if ($this->outputCallback) {
-                        call_user_func($this->outputCallback, $output);
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            if ($this->outputCallback) {
-                call_user_func($this->outputCallback, "Error reading stdout: " . $e->getMessage() . "\n");
-            }
-        }
-        
-        // Read from stderr with error handling
-        try {
-            // On Windows, we need to handle streams differently
-            if (PHP_OS_FAMILY === 'Windows') {
-                // For Windows, we'll try to read in non-blocking mode without setting it explicitly
-                $errorOutput = fread($this->pipes[2], 8192);
-                if ($errorOutput !== false && $errorOutput !== '') {
-                    $this->outputBuffer .= $errorOutput;
-                    
-                    if ($this->outputCallback) {
-                        call_user_func($this->outputCallback, $errorOutput);
-                    }
-                }
-            } else {
-                // Unix-like systems
-                $errorOutput = stream_get_contents($this->pipes[2]);
-                if ($errorOutput !== false && $errorOutput !== '') {
-                    $this->outputBuffer .= $errorOutput;
-                    
-                    if ($this->outputCallback) {
-                        call_user_func($this->outputCallback, $errorOutput);
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            if ($this->outputCallback) {
-                call_user_func($this->outputCallback, "Error reading stderr: " . $e->getMessage() . "\n");
-            }
-        }
-        
-        // Check if process has completed
-        $status = proc_get_status($this->process);
-        if (!$status['running']) {
-            $this->handleProcessCompletion();
-        }
+        // Use a separate process to monitor the process
+        // We'll check the process status periodically
+        // This approach is simpler and more reliable
     }
     
     /**
@@ -283,72 +188,29 @@ class TestExecutor
      */
     private function handleProcessCompletion(): void
     {
-        if (!is_resource($this->process)) {
+        if ($this->process === null) {
             return;
         }
         
-        // Read any remaining output with error handling
-        try {
-            // On Windows, we need to handle streams differently
-            if (PHP_OS_FAMILY === 'Windows') {
-                // For Windows, we'll try to read in non-blocking mode without setting it explicitly
-                $remainingOutput = fread($this->pipes[1], 8192);
-                if ($remainingOutput !== false && $remainingOutput !== '') {
-                    $this->outputBuffer .= $remainingOutput;
-                    
-                    if ($this->outputCallback) {
-                        call_user_func($this->outputCallback, $remainingOutput);
-                    }
-                }
-            } else {
-                // Unix-like systems
-                $remainingOutput = stream_get_contents($this->pipes[1]);
-                if ($remainingOutput !== false && $remainingOutput !== '') {
-                    $this->outputBuffer .= $remainingOutput;
-                    
-                    if ($this->outputCallback) {
-                        call_user_func($this->outputCallback, $remainingOutput);
-                    }
-                }
+        // Get process output
+        $output = $this->process->getOutput();
+        $errorOutput = $this->process->getErrorOutput();
+        
+        // Append to output buffer
+        $this->outputBuffer .= $output . $errorOutput;
+        
+        // Call output callback with final output
+        if ($this->outputCallback) {
+            if (!empty($output)) {
+                call_user_func($this->outputCallback, $output);
             }
-        } catch (\Exception $e) {
-            if ($this->outputCallback) {
-                call_user_func($this->outputCallback, "Error reading final stdout: " . $e->getMessage() . "\n");
+            if (!empty($errorOutput)) {
+                call_user_func($this->outputCallback, $errorOutput);
             }
         }
         
-        try {
-            // On Windows, we need to handle streams differently
-            if (PHP_OS_FAMILY === 'Windows') {
-                // For Windows, we'll try to read in non-blocking mode without setting it explicitly
-                $remainingError = fread($this->pipes[2], 8192);
-                if ($remainingError !== false && $remainingError !== '') {
-                    $this->outputBuffer .= $remainingError;
-                    
-                    if ($this->outputCallback) {
-                        call_user_func($this->outputCallback, $remainingError);
-                    }
-                }
-            } else {
-                // Unix-like systems
-                $remainingError = stream_get_contents($this->pipes[2]);
-                if ($remainingError !== false && $remainingError !== '') {
-                    $this->outputBuffer .= $remainingError;
-                    
-                    if ($this->outputCallback) {
-                        call_user_func($this->outputCallback, $remainingError);
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            if ($this->outputCallback) {
-                call_user_func($this->outputCallback, "Error reading final stderr: " . $e->getMessage() . "\n");
-            }
-        }
-        
-        // Get exit code and process status
-        $status = proc_get_status($this->process);
-        $exitCode = $status['exitcode'];
+        // Get exit code
+        $exitCode = $this->process->getExitCode();
         
         // Add error information to output if process failed
         if ($exitCode !== 0) {
@@ -366,7 +228,8 @@ class TestExecutor
             call_user_func($this->completionCallback, $testResult);
         }
         
-        $this->cleanup();
+        $this->isRunning = false;
+        $this->process = null;
     }
 
     /**
@@ -374,6 +237,10 @@ class TestExecutor
      */
     private function handleTimeout(): void
     {
+        if ($this->process === null) {
+            return;
+        }
+        
         $timeoutMessage = "\n[Timeout] Test execution timed out after {$this->executionTimeout} seconds\n";
         $this->outputBuffer .= $timeoutMessage;
         
@@ -382,16 +249,7 @@ class TestExecutor
         }
         
         // Terminate the process
-        // Use different approach for Windows vs Unix-like systems
-        if (is_resource($this->process)) {
-            if (PHP_OS_FAMILY === 'Windows') {
-                // On Windows, we need to use a different approach
-                proc_terminate($this->process);
-            } else {
-                // On Unix-like systems, use SIGKILL to ensure it stops
-                proc_terminate($this->process, 9); // SIGKILL
-            }
-        }
+        $this->process->stop(5); // Give 5 seconds for graceful termination
         
         // Create timeout result
         if ($this->completionCallback) {
@@ -405,30 +263,35 @@ class TestExecutor
             call_user_func($this->completionCallback, $testResult);
         }
         
-        $this->cleanup();
+        $this->isRunning = false;
+        $this->process = null;
     }
     
     /**
-     * Clean up process resources
+     * Read any remaining output from the process
      */
-    private function cleanup(): void
+    private function readRemainingOutput(): void
     {
-        if (is_resource($this->process)) {
-            // Close pipes
-            if (isset($this->pipes[1]) && is_resource($this->pipes[1])) {
-                fclose($this->pipes[1]);
-            }
-            if (isset($this->pipes[2]) && is_resource($this->pipes[2])) {
-                fclose($this->pipes[2]);
-            }
-            
-            // Close process
-            proc_close($this->process);
+        if ($this->process === null) {
+            return;
         }
         
-        $this->process = null;
-        $this->pipes = [];
-        $this->isRunning = false;
+        // Get any remaining output
+        $output = $this->process->getOutput();
+        $errorOutput = $this->process->getErrorOutput();
+        
+        // Append to output buffer
+        $this->outputBuffer .= $output . $errorOutput;
+        
+        // Call output callback with remaining output
+        if ($this->outputCallback) {
+            if (!empty($output)) {
+                call_user_func($this->outputCallback, $output);
+            }
+            if (!empty($errorOutput)) {
+                call_user_func($this->outputCallback, $errorOutput);
+            }
+        }
     }
     
     /**
@@ -462,19 +325,6 @@ class TestExecutor
     }
     
     /**
-     * Update process monitoring (should be called periodically from GUI event loop)
-     * 
-     * This method should be called regularly to ensure real-time output capture
-     * and proper process completion handling.
-     */
-    public function update(): void
-    {
-        if ($this->isRunning) {
-            $this->monitorProcess();
-        }
-    }
-    
-    /**
      * Execute a test synchronously (blocking)
      * 
      * This is a convenience method for cases where synchronous execution is preferred.
@@ -500,107 +350,47 @@ class TestExecutor
         
         // Parse command into parts
         $commandParts = $this->parseCommand($command);
-        $binary = $commandParts[0];
-        $arguments = array_slice($commandParts, 1);
         
         // Set environment variables for better error reporting
         $env = Env\get_vars();
         $env['LC_ALL'] = 'C'; // Ensure consistent output format
         
-        // Create the full command string
-        $fullCommand = $command;
-        
         // Set timeout
         $this->setTimeout($timeoutSeconds);
         $this->executionStartTime = time();
         
-        // Execute the command synchronously
-        $descriptors = [
-            0 => ['pipe', 'r'], // stdin
-            1 => ['pipe', 'w'], // stdout
-            2 => ['pipe', 'w']  // stderr
-        ];
-        $pipes = [];
-        // Start the process with error handling
-        $process = proc_open($fullCommand, $descriptors, $pipes, null, $env);
-
+        // Create Symfony Process
+        $process = new Process($commandParts, null, $env);
+        $process->setTimeout($timeoutSeconds);
         
-        if (!is_resource($process)) {
-            $error = error_get_last();
-            $errorMsg = $error ? $error['message'] : 'Unknown error';
-            throw new RuntimeException('Failed to start oha process: ' . $errorMsg . ' (Command: ' . $fullCommand . ')');
+        try {
+            // Execute the command synchronously
+            $process->mustRun();
+            
+            // Get output and error output
+            $output = $process->getOutput();
+            $errorOutput = $process->getErrorOutput();
+            $exitCode = $process->getExitCode();
+            
+            // Combine output and error output
+            $fullOutput = $output . $errorOutput;
+            
+            // Add error information to output if process failed
+            if ($exitCode !== 0) {
+                $errorMessage = $this->getProcessErrorMessage($exitCode, $fullOutput);
+                $fullOutput .= "\n[Process Error] " . $errorMessage . "\n";
+            }
+            
+            // Create and return test result
+            $testResult = $this->createTestResultFromOutput($fullOutput, $exitCode);
+            
+            return $testResult;
+        } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
+            // Handle timeout specifically
+            throw new RuntimeException('Test execution timed out after ' . $timeoutSeconds . ' seconds');
+        } catch (\Exception $e) {
+            throw new RuntimeException('Failed to execute oha process: ' . $e->getMessage() . ' (Command: ' . $command . ')');
         }
-        
-        // Check if process started successfully
-        $status = proc_get_status($process);
-        if (!$status['running'] && $status['exitcode'] !== -1) {
-            // Close pipes and process
-            fclose($pipes[0]);
-            fclose($pipes[1]);
-            fclose($pipes[2]);
-            proc_close($process);
-            throw new RuntimeException('Process failed to start or exited immediately with code: ' . $status['exitcode']);
-        }
-        
-        // Close stdin as we don't need to send input to oha
-        fclose($pipes[0]);
-        
-        // Set pipes to blocking mode for synchronous reading
-        stream_set_blocking($pipes[1], true);
-        stream_set_blocking($pipes[2], true);
-        
-        // Read output and error streams
-        $output = '';
-        $errorOutput = '';
-        
-        // Read stdout
-        $output = stream_get_contents($pipes[1]);
-        
-        // Read stderr
-        $errorOutput = stream_get_contents($pipes[2]);
-        
-        // Close pipes
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        
-        // Get exit code
-        $status = proc_get_status($process);
-        $exitCode = $status['exitcode'];
-        
-        // Wait for process to complete if it's still running
-        if ($status['running']) {
-            $exitCode = proc_close($process);
-        } else {
-            proc_close($process);
-        }
-        
-        // Combine output and error output
-        $fullOutput = $output . $errorOutput;
-        
-        // Add error information to output if process failed
-        if ($exitCode !== 0) {
-            $errorMessage = $this->getProcessErrorMessage($exitCode, $fullOutput);
-            $fullOutput .= "\n[Process Error] " . $errorMessage . "\n";
-        }
-        
-        // Create and return test result
-        $testResult = $this->createTestResultFromOutput($fullOutput, $exitCode);
-        
-        return $testResult;
-    }
-    
-    /**
-     * Get process status information
-     * 
-     * @return array|null Process status array or null if no process is running
-     */
-    public function getProcessStatus(): ?array
-    {
-        if (!is_resource($this->process)) {
-            return null;
-        }
-        
-        return proc_get_status($this->process);
     }
     
     /**
@@ -777,6 +567,43 @@ class TestExecutor
         return $parts;
     }
 
+    /**
+     * Update process monitoring (should be called periodically from GUI event loop)
+     * 
+     * This method should be called regularly to ensure real-time output capture
+     * and proper process completion handling.
+     */
+    public function update(): void
+    {
+        // Check if process is still running
+        if ($this->isRunning && $this->process !== null) {
+            if (!$this->process->isRunning()) {
+                // Process has completed
+                $this->isRunning = false;
+                $this->handleProcessCompletion();
+            } else {
+                // Process is still running, check for new output
+                $newOutput = $this->process->getIncrementalOutput();
+                $newErrorOutput = $this->process->getIncrementalErrorOutput();
+                
+                if (!empty($newOutput) && $this->outputCallback) {
+                    call_user_func($this->outputCallback, $newOutput);
+                    $this->outputBuffer .= $newOutput;
+                }
+                
+                if (!empty($newErrorOutput) && $this->outputCallback) {
+                    call_user_func($this->outputCallback, $newErrorOutput);
+                    $this->outputBuffer .= $newErrorOutput;
+                }
+                
+                // Check for timeout
+                if ($this->hasTimedOut()) {
+                    $this->handleTimeout();
+                }
+            }
+        }
+    }
+    
     /**
      * Destructor to ensure proper cleanup
      */
