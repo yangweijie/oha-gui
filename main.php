@@ -77,7 +77,7 @@ function checkSystemRequirements(): void
     }
 
     // Check if libui library is available
-    if (!class_exists('Kingbes\Libui\Base')) {
+    if (!class_exists('Kingbes\\Libui\\Base')) {
         $errorMessage = \OhaGui\Utils\UserMessages::getErrorMessage('libui_not_found');
         fwrite(STDERR, $errorMessage . "\n");
         exit(1);
@@ -90,7 +90,18 @@ function checkSystemRequirements(): void
     if (!$ohaBinary || !is_executable($ohaBinary)) {
         $warningMessage = \OhaGui\Utils\UserMessages::getWarningMessage('oha_not_in_path');
         fwrite(STDERR, $warningMessage . "\n");
-        echo "The application will start but tests cannot be executed without oha.\n";
+        echo "Attempting to download oha binary...\n";
+        
+        // Try to download the binary
+        $downloader = new \OhaGui\Utils\BinaryDownloader();
+        $downloadedBinary = $downloader->downloadBinary();
+        
+        if ($downloadedBinary !== null) {
+            echo "✓ oha binary downloaded successfully to: $downloadedBinary\n";
+            $ohaBinary = $downloadedBinary;
+        } else {
+            echo "The application will start but tests cannot be executed without oha.\n";
+        }
     } else {
         echo "✓ oha binary found at: $ohaBinary\n";
     }

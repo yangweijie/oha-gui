@@ -192,7 +192,7 @@ class CrossPlatform
      * 
      * @return string|null
      */
-    private static function getProjectRoot(): ?string
+    private static function findProjectRoot(): ?string
     {
         $currentDir = __DIR__;
         
@@ -211,6 +211,16 @@ class CrossPlatform
         }
         
         return null;
+    }
+
+    /**
+     * Get the project root directory (public method)
+     * 
+     * @return string|null
+     */
+    public static function getProjectRoot(): ?string
+    {
+        return self::findProjectRoot();
     }
 
     /**
