@@ -39,6 +39,7 @@ class MainWindow extends BaseGUIComponent
     private ?RequestOverview $requestOverview = null;
     private $startButton = null;
     private $stopButton = null;
+    private $openConfigDirButton = null;
     private $progressBar = null;
     private ?TestConfiguration $currentConfig = null;
     
@@ -209,6 +210,10 @@ class MainWindow extends BaseGUIComponent
         // Create stop button
         $this->stopButton = Button::create("停止测试");
         Box::append($buttonHBox, $this->stopButton, true);
+
+        // Create open config directory button
+        $this->openConfigDirButton = Button::create("打开配置目录");
+        Box::append($buttonHBox, $this->openConfigDirButton, true);
 
         // Add button box to main layout
         Box::append($this->vbox, $buttonHBox, false);
@@ -395,6 +400,13 @@ class MainWindow extends BaseGUIComponent
             
             // Disable stop button initially
             Control::disable($this->stopButton);
+        }
+        
+        // Setup open config directory button click handler
+        if ($this->openConfigDirButton !== null) {
+            Button::onClicked($this->openConfigDirButton, function() {
+                $this->openConfigDirectory();
+            });
         }
     }
 
@@ -831,6 +843,45 @@ class MainWindow extends BaseGUIComponent
     }
 
     /**
+     * Open the configuration directory in the system's file manager
+     */
+    private function openConfigDirectory(): void
+    {
+        try {
+            // Get the configuration directory from the configuration manager
+            $configDirectory = $this->configManager->getStorageInfo()['config_directory'] ?? '';
+            
+            if (empty($configDirectory) || !is_dir($configDirectory)) {
+                // Fallback to default config directory
+                $configDirectory = \OhaGui\Utils\CrossPlatform::getConfigDirectory();
+            }
+            
+            if (!empty($configDirectory) && is_dir($configDirectory)) {
+                // Use CrossPlatform utility to open the directory
+                $success = \OhaGui\Utils\CrossPlatform::openDirectory($configDirectory);
+                
+                if (!$success) {
+                    // Show error message if opening directory failed
+                    if ($this->statusLabel !== null) {
+                        Label::setText($this->statusLabel, "Failed to open configuration directory");
+                    }
+                }
+            } else {
+                // Show error message if config directory doesn't exist
+                if ($this->statusLabel !== null) {
+                    Label::setText($this->statusLabel, "Configuration directory not found");
+                }
+            }
+        } catch (Throwable $e) {
+            // Show error message if exception occurred
+            if ($this->statusLabel !== null) {
+                Label::setText($this->statusLabel, "Error opening configuration directory: " . $e->getMessage());
+            }
+            error_log("Error opening configuration directory: " . $e->getMessage());
+        }
+    }
+    
+    /**
      * Center the window on the screen
      */
     private function centerWindow(): void
@@ -889,6 +940,7 @@ class MainWindow extends BaseGUIComponent
             // Clear UI element references
             $this->startButton = null;
             $this->stopButton = null;
+            $this->openConfigDirButton = null;
             $this->progressBar = null;
             
             // Clear UI element references

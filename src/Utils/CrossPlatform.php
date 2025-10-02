@@ -319,6 +319,51 @@ class CrossPlatform
     }
 
     /**
+     * Open a directory in the system's file manager
+     * 
+     * @param string $directoryPath The directory path to open
+     * @return bool True if successful, false otherwise
+     */
+    public static function openDirectory(string $directoryPath): bool
+    {
+        if (!is_dir($directoryPath)) {
+            return false;
+        }
+        
+        try {
+            if (self::isWindows()) {
+                // Windows: use explorer
+                $escapedPath = self::escapeShellArgument($directoryPath);
+                exec("explorer $escapedPath", $output, $returnCode);
+                return $returnCode === 0;
+            } elseif (self::isMacOS()) {
+                // macOS: use open command
+                $escapedPath = self::escapeShellArgument($directoryPath);
+                exec("open $escapedPath", $output, $returnCode);
+                return $returnCode === 0;
+            } else {
+                // Linux: try xdg-open first, then gnome-open, then kde-open
+                $escapedPath = self::escapeShellArgument($directoryPath);
+                $commands = ['xdg-open', 'gnome-open', 'kde-open'];
+                
+                foreach ($commands as $command) {
+                    exec("which $command", $output, $returnCode);
+                    if ($returnCode === 0) {
+                        exec("$command $escapedPath", $output, $returnCode);
+                        return $returnCode === 0;
+                    }
+                }
+                
+                // If none of the commands work, return false
+                return false;
+            }
+        } catch (Exception $e) {
+            error_log("Error opening directory: " . $e->getMessage());
+            return false;
+        }
+    }
+    
+    /**
      * Escape a command argument for safe shell execution
      * 
      * @param string $argument
