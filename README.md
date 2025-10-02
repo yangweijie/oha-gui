@@ -32,6 +32,19 @@ A cross-platform GUI application for HTTP load testing using the [oha](https://g
 
 ## Quick Start
 
+### Option 1: Using Pre-built PHAR (Recommended)
+Download the pre-built `oha-gui.phar` from the releases page and run:
+```bash
+# Download oha from https://github.com/hatoo/oha/releases
+# Create `bin/` directory if it doesn't exist
+# Place the binary in `bin/` directory:
+#   - Windows: `bin/oha.exe`
+#   - macOS/Linux: `bin/oha` (with execute permissions)
+
+php oha-gui.phar
+```
+
+### Option 2: From Source Code
 1. **Download and Setup**
    ```bash
    git clone <repository-url>
@@ -190,6 +203,32 @@ tests/             # Unit tests
 vendor/            # Composer dependencies
 main.php           # Application entry point
 ```
+
+### Building PHAR Package
+
+To build a standalone PHAR package for distribution:
+
+1. **Install Box dependency** (if not already installed):
+   ```bash
+   composer require --dev humbug/box
+   ```
+
+2. **Build the PHAR package**:
+   ```bash
+   ./build.sh
+   ```
+   
+   Or manually:
+   ```bash
+   php vendor/bin/box compile
+   ```
+
+3. **Run the generated PHAR**:
+   ```bash
+   php oha-gui.phar
+   ```
+
+The build process will create `oha-gui.phar` which contains all necessary files and dependencies for standalone execution.
 
 ### Running Tests
 
