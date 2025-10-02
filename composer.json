@@ -2,7 +2,7 @@
     "name": "yangweijie/oha-gui",
     "type": "project",
     "require": {
-        "php": "^8.0",
+        "php": "^8.1",
         "ext-ffi": "*",
         "azjezz/psl": "^4.0",
         "kingbes/libui": "^0.1.3",

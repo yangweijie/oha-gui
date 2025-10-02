@@ -248,9 +248,30 @@ class ImportExportDialog extends BaseGUIComponent
      */
     private function onBrowse(): void
     {
-        // In a full implementation, this would open a file dialog
-        // For now, we'll just show a message
-        $this->showStatus("File dialog not implemented in this version");
+        if ($this->window === null) {
+            return;
+        }
+        
+        // Check if we're in export mode (by checking if there's a default file path)
+        $defaultPath = $this->getFilePath();
+        $isExportMode = !empty($defaultPath);
+        
+        try {
+            if ($isExportMode) {
+                // Export mode - use save file dialog
+                $selectedFile = Window::saveFile($this->window);
+            } else {
+                // Import mode - use open file dialog
+                $selectedFile = Window::openFile($this->window);
+            }
+            
+            if ($selectedFile !== null && !empty($selectedFile)) {
+                Entry::setText($this->filePathEntry, $selectedFile);
+                $this->showStatus("Selected file: " . $selectedFile);
+            }
+        } catch (Throwable $e) {
+            $this->showError("Error opening file dialog: " . $e->getMessage());
+        }
     }
 
     /**
