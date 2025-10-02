@@ -215,7 +215,11 @@ To build a standalone PHAR package for distribution:
 
 2. **Build the PHAR package**:
    ```bash
+   # On Unix-like systems (macOS, Linux)
    ./build.sh
+   
+   # On Windows
+   build.bat
    ```
    
    Or manually:

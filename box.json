@@ -10,7 +10,9 @@
     "composer.json",
     "README.md",
     "USER_GUIDE.md",
-    "IFLOW.md"
+    "IFLOW.md",
+    "build.sh",
+    "build.bat"
   ],
   "files-bin": [
     "bin/oha"
