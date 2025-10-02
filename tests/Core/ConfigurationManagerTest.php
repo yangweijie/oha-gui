@@ -214,7 +214,9 @@ class ConfigurationManagerTest
         $path = $this->configManager->getConfigurationPath('test-path');
         
         assertTrue(strpos($path, 'test-path.json') !== false);
-        assertTrue(strpos($path, $this->tempDir) !== false);
+        // 检查路径是否包含配置目录，标准化路径分隔符
+        $configDir = str_replace('/', DIRECTORY_SEPARATOR, $this->fileManager->getConfigDirectory());
+        assertTrue(strpos($path, $configDir) !== false);
     }
 
     public function testBackupConfiguration(): void
