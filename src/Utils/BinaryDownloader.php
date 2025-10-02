@@ -14,15 +14,15 @@ class BinaryDownloader
      */
     private const DOWNLOAD_URLS = [
         'linux' => [
-            'x64' => 'https://xget.xi-xu.me/gh/hatoo/oha/releases/download/v1.10.0/oha-linux-amd64-pgo',
-            'arm64' => 'https://xget.xi-xu.me/gh/hatoo/oha/releases/download/v1.10.0/oha-linux-arm64',
+            'x64' => 'https://proxy.pipers.cn/https://github.com/hatoo/oha/releases/download/v1.10.0/oha-linux-amd64-pgo',
+            'arm64' => 'https://proxy.pipers.cn/https://github.com/hatoo/oha/releases/download/v1.10.0/oha-linux-arm64',
         ],
         'macos' => [
-            'x64' => 'https://xget.xi-xu.me/gh/hatoo/oha/releases/download/v1.10.0/oha-macos-amd64',
-            'arm64' => 'https://xget.xi-xu.me/gh/hatoo/oha/releases/download/v1.10.0/oha-macos-arm64',
+            'x64' => 'https://proxy.pipers.cn/https://github.com/hatoo/oha/releases/download/v1.10.0/oha-macos-amd64',
+            'arm64' => 'https://proxy.pipers.cn/https://github.com/hatoo/oha/releases/download/v1.10.0/oha-macos-arm64',
         ],
         'windows' => [
-            'x64' => 'https://xget.xi-xu.me/gh/hatoo/oha/releases/download/v1.10.0/oha-windows-amd64-pgo.exe',
+            'x64' => 'https://proxy.pipers.cn/https://github.com/hatoo/oha/releases/download/v1.10.0/oha-windows-amd64-pgo.exe',
         ],
     ];
 
