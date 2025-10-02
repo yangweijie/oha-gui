@@ -26,10 +26,14 @@ class WindowHelper
                 return false;
             }
             
-            // For now, we'll position the window at a fixed position near the center
-            // A full implementation would need to get the window size to calculate exact center
-            $x = max(0, ($screenSize['width'] - 800) / 2);
-            $y = max(0, ($screenSize['height'] - 600) / 2);
+            // Use default window size for centering
+            // These values should match the window creation parameters
+            $windowWidth = 900;  // Default width from MainWindow creation
+            $windowHeight = 600; // Default height from MainWindow creation
+            
+            // Calculate centered position
+            $x = max(0, ($screenSize['width'] - $windowWidth) / 2);
+            $y = max(0, ($screenSize['height'] - $windowHeight) / 2);
             
             // Set window position
             LibuiWindow::setPosition($window, (int)$x, (int)$y);

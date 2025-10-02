@@ -71,10 +71,8 @@ class OhaGuiApp extends Base
             $this->mainWindow->show();
 
             // Set up periodic timer for test execution monitoring
-            $this->setupPeriodicTimer();
             App::onShouldQuit(function () {
-                App::quit();
-                return true;
+                return $this->onShouldQuit();
             });
             // Start the main event loop
             App::main();
@@ -84,36 +82,6 @@ class OhaGuiApp extends Base
             throw $e;
         } finally {
             $this->shutdown();
-        }
-    }
-
-    /**
-     * Setup periodic timer for test execution monitoring
-     */
-    private function setupPeriodicTimer(): void
-    {
-        // Queue the first update
-        $this->queueNextUpdate();
-    }
-    
-    /**
-     * Queue the next update callback
-     */
-    private function queueNextUpdate(): void
-    {
-        if ($this->mainWindow !== null) {
-            $this->mainWindow->update();
-        }
-        
-        // Re-queue the callback for continuous updates
-        if ($this->isRunning) {
-            $self = $this;
-            $callback = function () use ($self) {
-                // Add a small delay to prevent excessive CPU usage
-                usleep(100000); // 100ms delay
-                $self->queueNextUpdate();
-            };
-            App::queueMain($callback);
         }
     }
 

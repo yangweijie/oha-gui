@@ -30,7 +30,7 @@ class RequestOverview extends BaseGUIComponent
     /**
      * Create the request overview UI
      * 
-     * @return mixed libui control
+     * @return \FFI\CData libui control
      */
     public function createOverview()
     {
@@ -48,7 +48,7 @@ class RequestOverview extends BaseGUIComponent
         MultilineEntry::setText($this->overviewEntry, "请选择一个配置以查看请求详情" . PHP_EOL . "配置:" . PHP_EOL . "URL: " . PHP_EOL . "Method: " . PHP_EOL . "Connections: " . PHP_EOL . "Duration: " . PHP_EOL . "Timeout: " . PHP_EOL . "Headers: " . PHP_EOL . "Body: ");
         
         // Set the text area with fixed height by not allowing it to stretch
-        Box::append($overviewBox, $this->overviewEntry, false);
+        Box::append($overviewBox, $this->overviewEntry, true);
         
         // Minimize the space used by this component by not adding extra elements
 

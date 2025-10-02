@@ -147,10 +147,10 @@ class ConfirmationDialog extends BaseGUIComponent
         if ($this->window === null) {
             return;
         }
-        Control::show($this->window);
-        
         // Center window
         $this->centerWindow();
+
+        Control::show($this->window);
     }
 
     /**

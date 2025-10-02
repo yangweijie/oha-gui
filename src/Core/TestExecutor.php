@@ -2,6 +2,8 @@
 
 namespace OhaGui\Core;
 
+use InvalidArgumentException;
+use Kingbes\Libui\App;
 use OhaGui\Models\TestResult;
 use OhaGui\Models\TestConfiguration;
 use Psl\Shell;
@@ -9,6 +11,7 @@ use Psl\Env;
 use Psl\Str;
 use Psl\Vec;
 use Psl\Filesystem;
+use RuntimeException;
 
 /**
  * TestExecutor - Handles asynchronous execution of oha commands
@@ -35,17 +38,17 @@ class TestExecutor
      * @param TestConfiguration|null $config The test configuration (optional)
      * @param callable|null $outputCallback Callback for real-time output (receives string output)
      * @param callable|null $completionCallback Callback when test completes (receives TestResult)
-     * @throws \RuntimeException If command execution fails to start
+     * @throws RuntimeException If command execution fails to start
      */
     public function executeTest(string $command, ?TestConfiguration $config = null, ?callable $outputCallback = null, ?callable $completionCallback = null): void
     {
         if ($this->isRunning) {
-            throw new \RuntimeException('A test is already running. Stop the current test before starting a new one.');
+            throw new RuntimeException('A test is already running. Stop the current test before starting a new one.');
         }
         
         // Validate command before execution
         if (empty(trim($command))) {
-            throw new \InvalidArgumentException('Command cannot be empty');
+            throw new InvalidArgumentException('Command cannot be empty');
         }
         
         // Check if oha binary exists
@@ -81,14 +84,14 @@ class TestExecutor
         if (!is_resource($this->process)) {
             $error = error_get_last();
             $errorMsg = $error ? $error['message'] : 'Unknown error';
-            throw new \RuntimeException('Failed to start oha process: ' . $errorMsg . ' (Command: ' . $command . ')');
+            throw new RuntimeException('Failed to start oha process: ' . $errorMsg . ' (Command: ' . $command . ')');
         }
         
         // Check if process started successfully
         $status = proc_get_status($this->process);
         if (!$status['running'] && $status['exitcode'] !== -1) {
             $this->cleanup();
-            throw new \RuntimeException('Process failed to start or exited immediately with code: ' . $status['exitcode']);
+            throw new RuntimeException('Process failed to start or exited immediately with code: ' . $status['exitcode']);
         }
         
         $this->isRunning = true;
@@ -100,7 +103,7 @@ class TestExecutor
             // This is a known limitation, but we can still proceed
             if (PHP_OS_FAMILY !== 'Windows') {
                 $this->cleanup();
-                throw new \RuntimeException('Failed to set stdout to non-blocking mode');
+                throw new RuntimeException('Failed to set stdout to non-blocking mode');
             }
         }
         
@@ -109,7 +112,7 @@ class TestExecutor
             // This is a known limitation, but we can still proceed
             if (PHP_OS_FAMILY !== 'Windows') {
                 $this->cleanup();
-                throw new \RuntimeException('Failed to set stderr to non-blocking mode');
+                throw new RuntimeException('Failed to set stderr to non-blocking mode');
             }
         }
         
@@ -479,40 +482,111 @@ class TestExecutor
      * @param string $command The oha command to execute
      * @param int $timeoutSeconds Maximum time to wait for completion (default: 300 seconds)
      * @return TestResult The test result
-     * @throws \RuntimeException If execution fails or times out
+     * @throws RuntimeException If execution fails or times out
      */
     public function executeTestSync(string $command, int $timeoutSeconds = 300): TestResult
     {
+        if ($this->isRunning) {
+            throw new RuntimeException('A test is already running. Stop the current test before starting a new one.');
+        }
+        
+        // Validate command before execution
+        if (empty(trim($command))) {
+            throw new InvalidArgumentException('Command cannot be empty');
+        }
+        
+        // Check if oha binary exists
+        $this->validateOhaBinary($command);
+        
+        // Parse command into parts
+        $commandParts = $this->parseCommand($command);
+        $binary = $commandParts[0];
+        $arguments = array_slice($commandParts, 1);
+        
+        // Set environment variables for better error reporting
+        $env = Env\get_vars();
+        $env['LC_ALL'] = 'C'; // Ensure consistent output format
+        
+        // Create the full command string
+        $fullCommand = $command;
+        
+        // Set timeout
+        $this->setTimeout($timeoutSeconds);
+        $this->executionStartTime = time();
+        
+        // Execute the command synchronously
+        $descriptors = [
+            0 => ['pipe', 'r'], // stdin
+            1 => ['pipe', 'w'], // stdout
+            2 => ['pipe', 'w']  // stderr
+        ];
+        $pipes = [];
+        // Start the process with error handling
+        $process = proc_open($fullCommand, $descriptors, $pipes, null, $env);
+
+        
+        if (!is_resource($process)) {
+            $error = error_get_last();
+            $errorMsg = $error ? $error['message'] : 'Unknown error';
+            throw new RuntimeException('Failed to start oha process: ' . $errorMsg . ' (Command: ' . $fullCommand . ')');
+        }
+        
+        // Check if process started successfully
+        $status = proc_get_status($process);
+        if (!$status['running'] && $status['exitcode'] !== -1) {
+            // Close pipes and process
+            fclose($pipes[0]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($process);
+            throw new RuntimeException('Process failed to start or exited immediately with code: ' . $status['exitcode']);
+        }
+        
+        // Close stdin as we don't need to send input to oha
+        fclose($pipes[0]);
+        
+        // Set pipes to blocking mode for synchronous reading
+        stream_set_blocking($pipes[1], true);
+        stream_set_blocking($pipes[2], true);
+        
+        // Read output and error streams
         $output = '';
-        $completed = false;
-        $result = null;
+        $errorOutput = '';
         
-        // Set up callbacks
-        $outputCallback = function($data) use (&$output) {
-            $output .= $data;
-        };
+        // Read stdout
+        $output = stream_get_contents($pipes[1]);
         
-        $completionCallback = function($testResult) use (&$completed, &$result) {
-            $completed = true;
-            $result = $testResult;
-        };
+        // Read stderr
+        $errorOutput = stream_get_contents($pipes[2]);
         
-        // Start the test
-        $this->executeTest($command, null, $outputCallback, $completionCallback);
+        // Close pipes
+        fclose($pipes[1]);
+        fclose($pipes[2]);
         
-        // Wait for completion with timeout
-        $startTime = time();
-        while (!$completed && (time() - $startTime) < $timeoutSeconds) {
-            $this->update();
-            usleep(100000); // Sleep for 100ms
+        // Get exit code
+        $status = proc_get_status($process);
+        $exitCode = $status['exitcode'];
+        
+        // Wait for process to complete if it's still running
+        if ($status['running']) {
+            $exitCode = proc_close($process);
+        } else {
+            proc_close($process);
         }
         
-        if (!$completed) {
-            $this->stopTest();
-            throw new \RuntimeException('Test execution timed out after ' . $timeoutSeconds . ' seconds');
+        // Combine output and error output
+        $fullOutput = $output . $errorOutput;
+        
+        // Add error information to output if process failed
+        if ($exitCode !== 0) {
+            $errorMessage = $this->getProcessErrorMessage($exitCode, $fullOutput);
+            $fullOutput .= "\n[Process Error] " . $errorMessage . "\n";
         }
         
-        return $result;
+        // Create and return test result
+        $testResult = $this->createTestResultFromOutput($fullOutput, $exitCode);
+        
+        return $testResult;
     }
     
     /**
@@ -533,7 +607,7 @@ class TestExecutor
      * Validate that oha binary exists and is executable
      * 
      * @param string $command The command to validate
-     * @throws \RuntimeException If oha binary is not found or not executable
+     * @throws RuntimeException If oha binary is not found or not executable
      */
     private function validateOhaBinary(string $command): void
     {
@@ -542,7 +616,7 @@ class TestExecutor
         $binaryPath = $parts[0] ?? '';
         
         if (empty($binaryPath)) {
-            throw new \RuntimeException('No binary path found in command');
+            throw new RuntimeException('No binary path found in command');
         }
         
         // Remove quotes if present
@@ -564,7 +638,7 @@ class TestExecutor
             exec($pathCommand . ' ' . escapeshellarg($binaryPath) . ' 2>/dev/null', $output, $returnCode);
             
             if ($returnCode !== 0 || empty($output)) {
-                throw new \RuntimeException(
+                throw new RuntimeException(
                     'oha binary not found in PATH. Please install oha or ensure it is in your system PATH. ' .
                     'Visit https://github.com/hatoo/oha for installation instructions.'
                 );
@@ -572,11 +646,11 @@ class TestExecutor
         } else {
             // Full path - check if file exists and is executable
             if (!Filesystem\exists($binaryPath)) {
-                throw new \RuntimeException('oha binary not found at: ' . $binaryPath);
+                throw new RuntimeException('oha binary not found at: ' . $binaryPath);
             }
             
             if (!Filesystem\is_executable($binaryPath)) {
-                throw new \RuntimeException('oha binary is not executable: ' . $binaryPath);
+                throw new RuntimeException('oha binary is not executable: ' . $binaryPath);
             }
         }
     }

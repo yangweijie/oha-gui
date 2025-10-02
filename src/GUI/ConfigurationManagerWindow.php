@@ -14,6 +14,7 @@ use OhaGui\GUI\ConfigurationTable;
 use OhaGui\GUI\ConfigurationDialog;
 use OhaGui\GUI\ConfirmationDialog;
 use OhaGui\Core\ConfigurationManager;
+use OhaGui\Utils\WindowHelper;
 use Throwable;
 
 /**
@@ -149,13 +150,13 @@ class ConfigurationManagerWindow extends BaseGUIComponent
         
         // Refresh table before showing
         $this->refreshTable();
-        Control::show($this->window);
-        
-        // Bring to front
-        Window::setTitle($this->window, "配置管理");
-        
         // Center window
         $this->centerWindow();
+        Window::setTitle($this->window, "配置管理");
+
+        Control::show($this->window);
+
+        // Bring to front
     }
 
     /**
@@ -198,7 +199,7 @@ class ConfigurationManagerWindow extends BaseGUIComponent
      */
     public function onImportClick(): void
     {
-        \OhaGui\GUI\ImportExportDialog::showImport([$this, 'onConfigurationImported']);
+        ImportExportDialog::showImport([$this, 'onConfigurationImported']);
     }
 
     /**
@@ -418,8 +419,8 @@ class ConfigurationManagerWindow extends BaseGUIComponent
         
         // Use WindowHelper to center the window
         try {
-            \OhaGui\Utils\WindowHelper::centerWindow($this->window);
-        } catch (\Throwable $e) {
+            WindowHelper::centerWindow($this->window);
+        } catch (Throwable $e) {
             // Ignore errors in window centering
             error_log("Failed to center window: " . $e->getMessage());
         }

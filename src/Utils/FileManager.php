@@ -50,17 +50,17 @@ class FileManager
                 $errorMsg = $error ? $error['message'] : 'Unknown error';
                 
                 // Provide specific error messages based on common issues
-                if (strpos($errorMsg, 'Permission denied') !== false) {
+                if (str_contains($errorMsg, 'Permission denied')) {
                     throw new RuntimeException(
                         "Permission denied: Cannot create configuration directory '{$this->configDirectory}'. " .
                         "Please check parent directory permissions or run with appropriate privileges."
                     );
-                } elseif (strpos($errorMsg, 'No space left') !== false) {
+                } elseif (str_contains($errorMsg, 'No space left')) {
                     throw new RuntimeException(
                         "Insufficient disk space: Cannot create configuration directory '{$this->configDirectory}'. " .
                         "Please free up disk space and try again."
                     );
-                } elseif (strpos($errorMsg, 'File exists') !== false) {
+                } elseif (str_contains($errorMsg, 'File exists')) {
                     throw new RuntimeException(
                         "Path conflict: A file exists at '{$this->configDirectory}' where directory should be created. " .
                         "Please remove the file or choose a different configuration directory."
