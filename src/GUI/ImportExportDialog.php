@@ -265,7 +265,7 @@ class ImportExportDialog extends BaseGUIComponent
                 $selectedFile = Window::openFile($this->window);
             }
             
-            if ($selectedFile !== null && !empty($selectedFile)) {
+            if (!empty($selectedFile)) {
                 Entry::setText($this->filePathEntry, $selectedFile);
                 $this->showStatus("Selected file: " . $selectedFile);
             }
