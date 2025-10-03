@@ -234,6 +234,15 @@ To build a standalone PHAR package for distribution:
 
 The build process will create `oha-gui.phar` which contains all necessary files and dependencies for standalone execution.
 
+### Cross-Platform PHAR Support
+
+The PHAR package now supports all major platforms:
+- **Windows**: Includes `oha.exe` and `libui.dll`
+- **macOS**: Includes `oha` and `libui.dylib`
+- **Linux**: Includes `oha` and `libui.so`
+
+The application automatically detects the platform at runtime and loads the appropriate libraries.
+
 ### Running Tests
 
 #### Unit Tests
@@ -265,11 +274,11 @@ php test_process_error_handling.php
 ## Version Information
 
 **Current Version**: 1.0.0  
-**Release Date**: 2024  
-**PHP Requirement**: 8.0+  
+**Release Date**: 2025  
+**PHP Requirement**: 8.1+  
 **Platform Support**: Windows, macOS, Linux  
 
-## Recent Improvements
+### Recent Improvements
 
 ### Version 1.0.0 Features
 
@@ -282,6 +291,7 @@ php test_process_error_handling.php
 - **Enhanced Configuration Management**: Improved file operations with error recovery
 - **Professional UI Polish**: Better window management and user experience
 - **Fixed Configuration Save Bug**: Resolved "Call to a member function validateConfiguration() on null" error when saving new configurations
+- **Windows PHAR Support**: Added full support for building and running PHAR packages on Windows
 
 ### Technical Improvements
 
@@ -312,6 +322,7 @@ php test_process_error_handling.php
 - **Documentation**: Comprehensive README and troubleshooting guides
 - **Binary Management**: Simplified oha binary detection in bin/ directory
 - **User Experience**: Professional UI with keyboard shortcuts and tooltips
+- **Windows PHAR Support**: Full support for building and running PHAR packages on Windows
 
 ### Development Milestones
 - ✅ Core architecture and models
