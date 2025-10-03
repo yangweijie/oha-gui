@@ -39,37 +39,26 @@ abstract class Base
     protected static function getLibFilePath(): string
     {
         // 检查是否在 PHAR 环境中运行
-        $inPhar = defined('PATH_SEPARATOR') && strpos(__DIR__, 'phar://') === 0;
+        $inPhar = defined('PATH_SEPARATOR') && 
+                  (strpos(__DIR__, 'phar://') === 0 || 
+                   strpos(__FILE__, 'phar://') === 0);
 
-        if ($inPhar) {
-            // 在 PHAR 环境中，尝试从系统路径加载库文件
+        // 检查是否是通过 PHAR 文件运行的
+        $isPharExecution = isset($_SERVER['argv'][0]) && 
+                           is_string($_SERVER['argv'][0]) && 
+                           strpos($_SERVER['argv'][0], '.phar') !== false;
+
+        if ($inPhar || $isPharExecution) {
+            // 在 PHAR 环境中，我们需要将库文件提取到临时目录
             if (PHP_OS_FAMILY === 'Windows') {
                 // Windows 系统
-                return dirname(__DIR__) . '/lib/windows/libui.dll';
+                return self::extractLibFile('vendor/kingbes/libui/lib/windows/libui.dll');
             } else if (PHP_OS_FAMILY === 'Linux') {
                 // Linux 系统
-                return dirname(__DIR__) . '/lib/linux/libui.so';
+                return self::extractLibFile('vendor/kingbes/libui/lib/linux/libui.so');
             } elseif (PHP_OS_FAMILY === 'Darwin') {
                 // macOS 系统
-                // 检查系统架构
-                $arch = trim(shell_exec('uname -m'));
-                $isARM = $arch === 'arm64';
-
-                // 优先尝试从系统临时目录加载
-                $tempDir = sys_get_temp_dir();
-                $tempLibPath = $tempDir . '/libui.dylib';
-
-                // 如果临时目录中有正确的库文件，使用它
-                if (file_exists($tempLibPath)) {
-                    $expectedMd5 = '46722841c0b859c10745df15e647be1f';
-                    $currentMd5 = md5_file($tempLibPath);
-                    if ($currentMd5 === $expectedMd5) {
-                        return $tempLibPath;
-                    }
-                }
-
-                // 否则返回默认路径
-                return dirname(__DIR__) . '/lib/macos/libui.dylib';
+                return self::extractLibFile('vendor/kingbes/libui/lib/macos/libui.dylib');
             }
         } else {
             // 不在 PHAR 环境中，使用原来的逻辑
@@ -87,5 +76,55 @@ abstract class Base
                 throw new \RuntimeException("Unsupported operating system: " . PHP_OS_FAMILY . ": " . PHP_OS . "");
             }
         }
+    }
+
+    /**
+     * 从 PHAR 包中提取库文件到临时目录
+     *
+     * @param string $libFile 相对于 PHAR 根目录的库文件路径
+     * @return string 临时目录中库文件的路径
+     */
+    protected static function extractLibFile(string $libFile): string
+    {
+        // 获取临时目录
+        $tempDir = sys_get_temp_dir();
+        $tempLibPath = $tempDir . '/' . basename($libFile);
+
+        // 检查临时目录中的文件是否已经存在且是最新的
+        if (!file_exists($tempLibPath) || filemtime($tempLibPath) < filemtime(__FILE__)) {
+            // 确定 PHAR 文件路径
+            if (isset($_SERVER['argv'][0]) && strpos($_SERVER['argv'][0], '.phar') !== false) {
+                // 通过命令行运行 PHAR 文件
+                $pharPath = $_SERVER['argv'][0];
+            } else {
+                // 在 PHAR 环境中运行
+                $pharPath = dirname(__DIR__, 3) . '/oha-gui.phar';
+            }
+            
+            // 从 PHAR 包中读取库文件内容
+            $libPathInPhar = 'phar://' . $pharPath . '/' . $libFile;
+            
+            // 检查 PHAR 中的文件是否存在
+            if (file_exists($libPathInPhar)) {
+                $libContent = file_get_contents($libPathInPhar);
+                if ($libContent !== false) {
+                    // 将库文件写入临时目录
+                    file_put_contents($tempLibPath, $libContent);
+                    // 设置适当的权限
+                    chmod($tempLibPath, 0755);
+                } else {
+                    throw new \RuntimeException("Failed to read library file from PHAR: " . $libPathInPhar);
+                }
+            } else {
+                // 如果在 PHAR 中找不到文件，尝试从当前目录查找
+                $localLibPath = dirname(__DIR__, 3) . '/' . $libFile;
+                if (file_exists($localLibPath)) {
+                    return $localLibPath;
+                }
+                throw new \RuntimeException("Library file not found in PHAR: " . $libPathInPhar);
+            }
+        }
+
+        return $tempLibPath;
     }
 }

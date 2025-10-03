@@ -3,8 +3,11 @@
   "output": "oha-gui.phar",
   "directories": [
     "src",
-    "kingbes",
-    "scripts"
+    "scripts",
+    "vendor/kingbes/libui/src",
+    "vendor/azjezz/psl/src",
+    "vendor/revolt/event-loop/src",
+    "vendor/symfony/process"
   ],
   "files": [
     "composer.json",
@@ -15,7 +18,11 @@
     "build.bat"
   ],
   "files-bin": [
-    "bin/oha"
+    "bin/oha",
+    "bin/oha.exe",
+    "vendor/kingbes/libui/lib/macos/libui.dylib",
+    "vendor/kingbes/libui/lib/windows/libui.dll",
+    "vendor/kingbes/libui/lib/linux/libui.so"
   ],
   "exclude-composer-files": false,
   "compression": "GZ"

@@ -41,6 +41,16 @@ class UserMessages
                     'Verify libui.dylib (macOS) or libui.dll (Windows) is present'
                 ]
             ],
+            'libui_load_failed' => [
+                'title' => 'LibUI Library Load Failed',
+                'message' => 'The libui GUI library could not be loaded.',
+                'solutions' => [
+                    'Check that the libui library file exists and is accessible',
+                    'Verify the library file is compatible with your system architecture',
+                    'Ensure the library file has proper permissions',
+                    'Check if the library file is corrupted'
+                ]
+            ],
             'ffi_not_enabled' => [
                 'title' => 'FFI Extension Not Enabled',
                 'message' => 'The PHP FFI extension is required for GUI functionality.',

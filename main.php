@@ -85,6 +85,20 @@ function checkSystemRequirements(): void
     
     echo "✓ libui library (Kingbes\\Libui\\Base) is available\n";
 
+    // Try to load the libui library
+    try {
+        $ffi = \Kingbes\Libui\Base::ffi();
+        echo "✓ libui library loaded successfully\n";
+    } catch (\Exception $e) {
+        $errorMessage = \OhaGui\Utils\UserMessages::getErrorMessage('libui_load_failed', $e->getMessage());
+        fwrite(STDERR, $errorMessage . "\n");
+        exit(1);
+    } catch (\Throwable $e) {
+        $errorMessage = \OhaGui\Utils\UserMessages::getErrorMessage('libui_load_failed', $e->getMessage());
+        fwrite(STDERR, $errorMessage . "\n");
+        exit(1);
+    }
+
     // Check if oha binary is available
     $ohaBinary = \OhaGui\Utils\CrossPlatform::getOhaBinaryPath();
     if (!$ohaBinary || !is_executable($ohaBinary)) {
