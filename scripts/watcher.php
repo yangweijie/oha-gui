@@ -123,7 +123,7 @@ function hasFileChanges($oldTimestamps, $newTimestamps): bool
  */
 function startProcess($command)
 {
-    $cmd = 'php ' . APP_ROOT . '/cli.php ' . $command;
+    $cmd = 'php ' . APP_ROOT . '/main.php ' . $command;
     echo "Starting process: $cmd\n";
 
     // Start process in background
